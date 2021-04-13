@@ -15,7 +15,9 @@
 package main
 
 import (
+	"context"
 	"flag"
+	"fmt"
 
 	"go.etcd.io/etcd/raft/v3/raftpb"
 )
@@ -58,6 +60,17 @@ func createNode(id int, cluster []int, transport *Transport) *raftNode {
 	return n
 }
 
+func interpret(nodes map[int]*raftNode, events []event) {
+	for _, e := range events {
+		switch e.Type {
+		case Timeout:
+			nodes[e.Recipient].node.Campaign(context.TODO())
+		default:
+			panic(fmt.Sprintf("unknown event type %d", e.Type))
+		}
+	}
+}
+
 func main() {
 
 	// Config
@@ -71,11 +84,14 @@ func main() {
 		cluster = append(cluster, i)
 	}
 
-	// allNodes := []*raftNode{}
+	allNodes := map[int]*raftNode{}
 	for _, id := range cluster {
 		node := createNode(id, cluster, transport)
 		transport.AddNode(uint64(id), node)
-		// allNodes = append(allNodes, node)
+		allNodes[id] = node
 	}
+	interpret(allNodes, []event{
+		{Type: Timeout, Recipient: 1},
+	})
 	select {}
 }

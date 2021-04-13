@@ -124,6 +124,7 @@ func (rd Ready) appliedCursor() uint64 {
 
 // Node represents a node in a raft cluster.
 type Node interface {
+	Raft() *raft
 	// Tick increments the internal logical clock for the Node by a single tick. Election
 	// timeouts and heartbeat timeouts are in units of ticks.
 	Tick()
@@ -413,6 +414,10 @@ func (n *node) Tick() {
 	default:
 		n.rn.raft.logger.Warningf("%x A tick missed to fire. Node blocks too long!", n.rn.raft.id)
 	}
+}
+
+func (n *node) Raft() *raft {
+	return n.rn.raft
 }
 
 func (n *node) Campaign(ctx context.Context) error { return n.step(ctx, pb.Message{Type: pb.MsgHup}) }

@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"time"
 
 	"go.etcd.io/etcd/client/pkg/v3/fileutil"
 	"go.etcd.io/etcd/client/pkg/v3/types"
@@ -407,8 +406,8 @@ func (rc *raftNode) serveChannels() {
 
 	defer rc.wal.Close()
 
-	ticker := time.NewTicker(100 * time.Millisecond)
-	defer ticker.Stop()
+	// ticker := time.NewTicker(100 * time.Millisecond)
+	// defer ticker.Stop()
 
 	// send proposals over raft
 	go func() {
@@ -441,8 +440,8 @@ func (rc *raftNode) serveChannels() {
 	// event loop on raft state machine updates
 	for {
 		select {
-		case <-ticker.C:
-			rc.node.Tick()
+		// case <-ticker.C:
+		// rc.node.Tick()
 
 		// store raft entries to wal, then publish over commit channel
 		case rd := <-rc.node.Ready():
