@@ -18,19 +18,14 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"net/http"
-	"net/url"
 	"os"
-	"strconv"
 	"time"
 
 	"go.etcd.io/etcd/client/pkg/v3/fileutil"
 	"go.etcd.io/etcd/client/pkg/v3/types"
 	"go.etcd.io/etcd/raft/v3"
 	"go.etcd.io/etcd/raft/v3/raftpb"
-	"go.etcd.io/etcd/server/v3/etcdserver/api/rafthttp"
 	"go.etcd.io/etcd/server/v3/etcdserver/api/snap"
-	stats "go.etcd.io/etcd/server/v3/etcdserver/api/v2stats"
 	"go.etcd.io/etcd/server/v3/wal"
 	"go.etcd.io/etcd/server/v3/wal/walpb"
 
@@ -49,11 +44,11 @@ type raftNode struct {
 	commitC     chan<- *commit           // entries committed to log (k,v)
 	errorC      chan<- error             // errors from raft session
 
-	id          int      // client ID for raft session
-	peers       []string // raft peer URLs
-	join        bool     // node is joining an existing cluster
-	waldir      string   // path to WAL directory
-	snapdir     string   // path to snapshot directory
+	id          int    // client ID for raft session
+	peers       []int  // raft peer URLs
+	join        bool   // node is joining an existing cluster
+	waldir      string // path to WAL directory
+	snapdir     string // path to snapshot directory
 	getSnapshot func() ([]byte, error)
 
 	confState     raftpb.ConfState
@@ -69,7 +64,8 @@ type raftNode struct {
 	snapshotterReady chan *snap.Snapshotter // signals when snapshotter is ready
 
 	snapCount uint64
-	transport *rafthttp.Transport
+	// transport *rafthttp.Transport
+	transport *Transport
 	stopc     chan struct{} // signals proposal channel closed
 	httpstopc chan struct{} // signals http server to shutdown
 	httpdonec chan struct{} // signals http server shutdown complete
@@ -84,8 +80,8 @@ var defaultSnapshotCount uint64 = 10000
 // provided the proposal channel. All log entries are replayed over the
 // commit channel, followed by a nil message (to indicate the channel is
 // current), then new log entries. To shutdown, close proposeC and read errorC.
-func newRaftNode(id int, peers []string, join bool, getSnapshot func() ([]byte, error), proposeC <-chan string,
-	confChangeC <-chan raftpb.ConfChange) (<-chan *commit, <-chan error, <-chan *snap.Snapshotter) {
+func newRaftNode(id int, peers []int, join bool, getSnapshot func() ([]byte, error), proposeC <-chan string,
+	confChangeC <-chan raftpb.ConfChange, transport *Transport) (<-chan *commit, <-chan error, <-chan *snap.Snapshotter, *raftNode) {
 
 	commitC := make(chan *commit)
 	errorC := make(chan error)
@@ -106,13 +102,14 @@ func newRaftNode(id int, peers []string, join bool, getSnapshot func() ([]byte, 
 		httpstopc:   make(chan struct{}),
 		httpdonec:   make(chan struct{}),
 
-		logger: zap.NewExample(),
+		logger:    zap.NewExample(),
+		transport: transport,
 
 		snapshotterReady: make(chan *snap.Snapshotter, 1),
 		// rest of structure populated after WAL replay
 	}
 	go rc.startRaft()
-	return commitC, errorC, rc.snapshotterReady
+	return commitC, errorC, rc.snapshotterReady, rc
 }
 
 func (rc *raftNode) saveSnap(snap raftpb.Snapshot) error {
@@ -305,24 +302,24 @@ func (rc *raftNode) startRaft() {
 		rc.node = raft.StartNode(c, rpeers)
 	}
 
-	rc.transport = &rafthttp.Transport{
-		Logger:      rc.logger,
-		ID:          types.ID(rc.id),
-		ClusterID:   0x1000,
-		Raft:        rc,
-		ServerStats: stats.NewServerStats("", ""),
-		LeaderStats: stats.NewLeaderStats(zap.NewExample(), strconv.Itoa(rc.id)),
-		ErrorC:      make(chan error),
-	}
+	// rc.transport = &rafthttp.Transport{
+	// 	Logger:      rc.logger,
+	// 	ID:          types.ID(rc.id),
+	// 	ClusterID:   0x1000,
+	// 	Raft:        rc,
+	// 	ServerStats: stats.NewServerStats("", ""),
+	// 	LeaderStats: stats.NewLeaderStats(zap.NewExample(), strconv.Itoa(rc.id)),
+	// 	ErrorC:      make(chan error),
+	// }
 
-	rc.transport.Start()
-	for i := range rc.peers {
-		if i+1 != rc.id {
-			rc.transport.AddPeer(types.ID(i+1), []string{rc.peers[i]})
-		}
-	}
+	// rc.transport.Start()
+	// for i := range rc.peers {
+	// 	if i+1 != rc.id {
+	// rc.transport.AddPeer(types.ID(i+1), []string{rc.peers[i]})
+	// 	}
+	// }
 
-	go rc.serveRaft()
+	// go rc.serveRaft()
 	go rc.serveChannels()
 }
 
@@ -476,25 +473,25 @@ func (rc *raftNode) serveChannels() {
 	}
 }
 
-func (rc *raftNode) serveRaft() {
-	url, err := url.Parse(rc.peers[rc.id-1])
-	if err != nil {
-		log.Fatalf("raftexample: Failed parsing URL (%v)", err)
-	}
+// func (rc *raftNode) serveRaft() {
+// 	url, err := url.Parse(rc.peers[rc.id-1])
+// 	if err != nil {
+// 		log.Fatalf("raftexample: Failed parsing URL (%v)", err)
+// 	}
 
-	ln, err := newStoppableListener(url.Host, rc.httpstopc)
-	if err != nil {
-		log.Fatalf("raftexample: Failed to listen rafthttp (%v)", err)
-	}
+// 	ln, err := newStoppableListener(url.Host, rc.httpstopc)
+// 	if err != nil {
+// 		log.Fatalf("raftexample: Failed to listen rafthttp (%v)", err)
+// 	}
 
-	err = (&http.Server{Handler: rc.transport.Handler()}).Serve(ln)
-	select {
-	case <-rc.httpstopc:
-	default:
-		log.Fatalf("raftexample: Failed to serve rafthttp (%v)", err)
-	}
-	close(rc.httpdonec)
-}
+// 	err = (&http.Server{Handler: rc.transport.Handler()}).Serve(ln)
+// 	select {
+// 	case <-rc.httpstopc:
+// 	default:
+// 		log.Fatalf("raftexample: Failed to serve rafthttp (%v)", err)
+// 	}
+// 	close(rc.httpdonec)
+// }
 
 func (rc *raftNode) Process(ctx context.Context, m raftpb.Message) error {
 	return rc.node.Step(ctx, m)

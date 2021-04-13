@@ -16,13 +16,12 @@ package main
 
 import (
 	"flag"
-	"strings"
 
 	"go.etcd.io/etcd/raft/v3/raftpb"
 )
 
-func main() {
-	cluster := flag.String("cluster", "http://127.0.0.1:9021", "comma separated cluster peers")
+func main1() {
+	// cluster := flag.String("cluster", "http://127.0.0.1:9021", "comma separated cluster peers")
 	id := flag.Int("id", 1, "node ID")
 	kvport := flag.Int("port", 9121, "key-value server port")
 	join := flag.Bool("join", false, "join an existing cluster")
@@ -36,10 +35,47 @@ func main() {
 	// raft provides a commit stream for the proposals from the http api
 	var kvs *kvstore
 	getSnapshot := func() ([]byte, error) { return kvs.getSnapshot() }
-	commitC, errorC, snapshotterReady := newRaftNode(*id, strings.Split(*cluster, ","), *join, getSnapshot, proposeC, confChangeC)
+	commitC, errorC, snapshotterReady, _ := newRaftNode(*id, nil, *join, getSnapshot, proposeC, confChangeC, nil)
+	// strings.Split(*cluster, ",")
 
 	kvs = newKVStore(<-snapshotterReady, proposeC, commitC, errorC)
 
 	// the key-value http handler will propose updates to raft
 	serveHttpKVAPI(kvs, *kvport, confChangeC, errorC)
+}
+
+func createNode(id int, cluster []int, transport *Transport) *raftNode {
+	proposeC := make(chan string)
+	// TODO these should live as long as the program does
+	// defer close(proposeC)
+	confChangeC := make(chan raftpb.ConfChange)
+	// defer close(confChangeC)
+	var kvs *kvstore
+	getSnapshot := func() ([]byte, error) { return kvs.getSnapshot() }
+	commitC, errorC, snapshotterReady, n := newRaftNode(id,
+		cluster, false, getSnapshot, proposeC, confChangeC, transport)
+	kvs = newKVStore(<-snapshotterReady, proposeC, commitC, errorC)
+	return n
+}
+
+func main() {
+
+	// Config
+	nodes := 2
+
+	// Wiring
+	transport := newTransport()
+
+	cluster := []int{}
+	for i := 1; i <= nodes; i++ {
+		cluster = append(cluster, i)
+	}
+
+	// allNodes := []*raftNode{}
+	for _, id := range cluster {
+		node := createNode(id, cluster, transport)
+		transport.AddNode(uint64(id), node)
+		// allNodes = append(allNodes, node)
+	}
+	select {}
 }

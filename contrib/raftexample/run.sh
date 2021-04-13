@@ -12,6 +12,7 @@ build() {
   set -e
   go build -o raftexample
   ./raftexample --id 1 --cluster http://127.0.0.1:12379 --port 12380
+  echo '<end>'
 }
 
 cluster1() {
