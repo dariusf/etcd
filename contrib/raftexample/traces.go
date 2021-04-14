@@ -11,6 +11,8 @@ type EventType int
 
 const (
 	Timeout EventType = iota
+	Send
+	Receive
 )
 
 func (s EventType) String() string {
@@ -19,10 +21,14 @@ func (s EventType) String() string {
 
 var toString = map[EventType]string{
 	Timeout: "Timeout",
+	Send:    "Send",
+	Receive: "Receive",
 }
 
 var toID = map[string]EventType{
 	"Timeout": Timeout,
+	"Send":    Send,
+	"Receive": Receive,
 }
 
 func (s EventType) MarshalJSON() ([]byte, error) {

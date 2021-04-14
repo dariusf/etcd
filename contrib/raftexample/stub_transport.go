@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"sync"
 
 	// "net/http"
 	"time"
@@ -39,16 +40,69 @@ func (t *Transport) Handle(id uint64, r *raftNode) {
 	}
 }
 
-// func (t *Transport) Start() error {
-// 	return nil
-// }
+// We model the soup because we can't control when the impl sends messages.
+// This lets us control when they are received.
+var soup []raftpb.Message
+var soupL = sync.Mutex{}
 
-// func (t *Transport) Handler() http.Handler {
-// 	// return http.NewServeMux()
-// 	return nil
-// }
-
+// The library calls this
 func (t *Transport) Send(msgs []raftpb.Message) {
+	for _, m := range msgs {
+		soupL.Lock()
+		soup = append(soup, m)
+		soupL.Unlock()
+	}
+}
+
+// This blocks until the required messages are in the soup
+func (t *Transport) WaitForMessages(f func(raftpb.Message) bool) []raftpb.Message {
+	for {
+		// Lock only for the start of each iteration, before sleeping
+		soupL.Lock()
+		in := []raftpb.Message{}
+		out := []raftpb.Message{}
+		for _, m := range soup {
+			if f(m) {
+				in = append(in, m)
+			} else {
+				out = append(out, m)
+			}
+		}
+		if len(in) > 0 {
+			soup = out
+			soupL.Unlock()
+			return in
+		} else {
+			soupL.Unlock()
+			time.Sleep(100 * time.Millisecond)
+		}
+	}
+}
+
+// Like WaitForMessages but only waits for changes, without mutating
+func (t *Transport) ObserveSent(f func(raftpb.Message) bool) {
+	for {
+		in := []raftpb.Message{}
+		out := []raftpb.Message{}
+		// Lock only when reading soup
+		soupL.Lock()
+		for _, m := range soup {
+			if f(m) {
+				in = append(in, m)
+			} else {
+				out = append(out, m)
+			}
+		}
+		soupL.Unlock()
+		if len(in) > 0 {
+			return
+		} else {
+			time.Sleep(200 * time.Millisecond)
+		}
+	}
+}
+
+func (t *Transport) reallySend(msgs []raftpb.Message) {
 	for _, m := range msgs {
 		t.inputs[m.To] <- m
 	}

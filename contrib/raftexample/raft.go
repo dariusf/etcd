@@ -294,6 +294,7 @@ func (rc *raftNode) startRaft() {
 		MaxInflightMsgs:           256,
 		MaxUncommittedEntriesSize: 1 << 30,
 	}
+	// prevote is off
 
 	if oldwal || rc.join {
 		rc.node = raft.RestartNode(c)

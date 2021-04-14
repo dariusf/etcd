@@ -18,6 +18,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"time"
 
 	"go.etcd.io/etcd/raft/v3/raftpb"
 )
@@ -60,11 +61,40 @@ func createNode(id int, cluster []int, transport *Transport) *raftNode {
 	return n
 }
 
-func interpret(nodes map[int]*raftNode, events []event) {
+func pause(e event) {
+	time.Sleep(1 * time.Second)
+
+	// Alternative to sleeping when interactive
+
+	// scanner := bufio.NewScanner(os.Stdin)
+	// scanner.Scan()
+
+	fmt.Println("----", e)
+}
+
+func interpret(transport *Transport, nodes map[int]*raftNode, events []event) {
 	for _, e := range events {
+		pause(e)
 		switch e.Type {
 		case Timeout:
 			nodes[e.Recipient].node.Campaign(context.TODO())
+			transport.ObserveSent(func(m raftpb.Message) bool {
+				return m.Type == raftpb.MsgVote && m.From == uint64(e.Recipient)
+			})
+		case Send:
+			switch e.Message.Type {
+			case RequestVoteReq:
+				transport.ObserveSent(func(m raftpb.Message) bool {
+					return m.Type == raftpb.MsgVote && m.From == uint64(e.Sender) && m.To == uint64(e.Recipient)
+				})
+			}
+		case Receive:
+			switch e.Message.Type {
+			case RequestVoteReq:
+				transport.reallySend(transport.WaitForMessages(func(m raftpb.Message) bool {
+					return m.Type == raftpb.MsgVote && m.From == uint64(e.Sender) && m.To == uint64(e.Recipient)
+				}))
+			}
 		default:
 			panic(fmt.Sprintf("unknown event type %d", e.Type))
 		}
@@ -90,8 +120,10 @@ func main() {
 		transport.AddNode(uint64(id), node)
 		allNodes[id] = node
 	}
-	interpret(allNodes, []event{
+	interpret(transport, allNodes, []event{
 		{Type: Timeout, Recipient: 1},
+		{Type: Send, Message: msg{Type: RequestVoteReq}, Sender: 1, Recipient: 2},
+		{Type: Receive, Message: msg{Type: RequestVoteReq}, Sender: 1, Recipient: 2},
 	})
 	select {}
 }
