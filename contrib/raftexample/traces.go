@@ -3,7 +3,9 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
+	"io/ioutil"
 	"os"
 )
 
@@ -52,6 +54,7 @@ type MessageType int
 
 const (
 	RequestVoteReq MessageType = iota
+	RequestVoteRes
 )
 
 func (s MessageType) String() string {
@@ -60,10 +63,12 @@ func (s MessageType) String() string {
 
 var rvToString = map[MessageType]string{
 	RequestVoteReq: "RequestVoteReq",
+	RequestVoteRes: "RequestVoteRes",
 }
 
 var rvToID = map[string]MessageType{
 	"RequestVoteReq": RequestVoteReq,
+	"RequestVoteRes": RequestVoteRes,
 }
 
 func (s MessageType) MarshalJSON() ([]byte, error) {
@@ -94,10 +99,12 @@ type event struct {
 	Recipient int
 }
 
-func parseFile(fname string) []event {
+func ParseFile(fname string) ([]event, error) {
 	f, err := os.Open(fname)
+
+	defer f.Close()
 	if err != nil {
-		// handle error
+		return nil, fmt.Errorf("failed to open file %s", fname)
 	}
 	r := []event{}
 	d := json.NewDecoder(f)
@@ -110,5 +117,85 @@ func parseFile(fname string) []event {
 		}
 		r = append(r, v)
 	}
-	return r
+	return r, nil
+}
+
+type tmsg struct {
+	Mtype   string `json:"mtype"`
+	Msource int    `json:"msource"`
+	Mdest   int    `json:"mdest"`
+}
+
+type Trace struct {
+	State struct {
+		History struct {
+			Global []struct {
+				Action     string `json:"action"`
+				ExecutedOn int    `json:"executedOn"`
+				Msg        tmsg   `json:"msg"`
+			} `json:"global"`
+		} `json:"history"`
+	} `json:"state"`
+}
+
+func convertMsg(m tmsg) msg {
+	if m.Mtype == "RequestVoteRequest" {
+		return msg{Type: RequestVoteReq}
+	} else if m.Mtype == "RequestVoteResponse" {
+		return msg{Type: RequestVoteRes}
+	} else {
+		panic("unimplemented message type " + m.Mtype)
+	}
+}
+
+func preprocessEvents(events []event) []event {
+	res := []event{}
+	for _, e := range events {
+		if e.Sender == e.Recipient {
+			// do nothing
+		} else {
+			res = append(res, e)
+
+		}
+	}
+	return res
+}
+
+func ParseLog(fname string) []event {
+	f, err := os.Open(fname)
+	defer f.Close()
+	if err != nil {
+		panic("failed to open file")
+	}
+	bytes, err := ioutil.ReadAll(f)
+	if err != nil {
+		panic("failed to read file")
+	}
+	var trace []Trace
+	err1 := json.Unmarshal(bytes, &trace)
+	if err1 != nil {
+		panic("failed to parse json")
+	}
+	global := trace[len(trace)-1].State.History.Global
+	res := []event{}
+	for _, v := range global {
+		if v.Action == "Timeout" {
+			res = append(res, event{Type: Timeout, Recipient: v.ExecutedOn})
+		} else if v.Action == "Send" {
+			res = append(res, event{Type: Send,
+				Message:   convertMsg(v.Msg),
+				Sender:    v.Msg.Msource,
+				Recipient: v.Msg.Mdest,
+			})
+		} else if v.Action == "Receive" {
+			res = append(res, event{Type: Receive,
+				Message:   convertMsg(v.Msg),
+				Sender:    v.Msg.Msource,
+				Recipient: v.Msg.Mdest,
+			})
+		} else {
+			panic("unimplemented action " + fmt.Sprintf("%#v", v))
+		}
+	}
+	return preprocessEvents(res)
 }

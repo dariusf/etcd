@@ -11,7 +11,8 @@ build_traces() {
 build() {
   set -e
   go build -o raftexample
-  ./raftexample --id 1 --cluster http://127.0.0.1:12379 --port 12380
+  ./raftexample $PROJECT_DIR/diff.json
+  #--id 1 --cluster http://127.0.0.1:12379 --port 12380
   echo '<end>'
 }
 
@@ -31,6 +32,12 @@ sanity() {
   curl -L http://127.0.0.1:12380/my-key1 -XPUT -d hello
   sleep 1
   curl -L http://127.0.0.1:12380/my-key1
+}
+
+trace() {
+  java -cp $TLA_TOOLS -XX:+UseParallelGC tlc2.TLC $PROJECT_DIR/tla/raft.tla > /tmp/raft.log
+  java -jar $TLA2JSON -d /tmp/raft.log > /tmp/raft.json
+  ./convert.py raft.json > /tmp/raft1.json
 }
 
 if [ "$1" = "1" ]; then

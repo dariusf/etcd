@@ -18,6 +18,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"os"
 	"time"
 
 	"go.etcd.io/etcd/raft/v3/raftpb"
@@ -69,7 +70,7 @@ func pause(e event) {
 	// scanner := bufio.NewScanner(os.Stdin)
 	// scanner.Scan()
 
-	fmt.Println("----", e)
+	fmt.Printf("----%v\n", e)
 }
 
 func interpret(transport *Transport, nodes map[int]*raftNode, events []event) {
@@ -87,6 +88,8 @@ func interpret(transport *Transport, nodes map[int]*raftNode, events []event) {
 				transport.ObserveSent(func(m raftpb.Message) bool {
 					return m.Type == raftpb.MsgVote && m.From == uint64(e.Sender) && m.To == uint64(e.Recipient)
 				})
+			default:
+				panic(fmt.Sprintf("unknown msg type %s", e.Message.Type))
 			}
 		case Receive:
 			switch e.Message.Type {
@@ -94,10 +97,20 @@ func interpret(transport *Transport, nodes map[int]*raftNode, events []event) {
 				transport.reallySend(transport.WaitForMessages(func(m raftpb.Message) bool {
 					return m.Type == raftpb.MsgVote && m.From == uint64(e.Sender) && m.To == uint64(e.Recipient)
 				}))
+			default:
+				panic(fmt.Sprintf("unknown msg type %s", e.Message.Type))
 			}
 		default:
-			panic(fmt.Sprintf("unknown event type %d", e.Type))
+			panic(fmt.Sprintf("unknown event type %s", e.Type))
 		}
+	}
+}
+
+func exampleEvents() []event {
+	return []event{
+		{Type: Timeout, Recipient: 1},
+		{Type: Send, Message: msg{Type: RequestVoteReq}, Sender: 1, Recipient: 2},
+		{Type: Receive, Message: msg{Type: RequestVoteReq}, Sender: 1, Recipient: 2},
 	}
 }
 
@@ -105,6 +118,9 @@ func main() {
 
 	// Config
 	nodes := 2
+
+	// Args
+	traceF := os.Args[1]
 
 	// Wiring
 	transport := newTransport()
@@ -120,10 +136,7 @@ func main() {
 		transport.AddNode(uint64(id), node)
 		allNodes[id] = node
 	}
-	interpret(transport, allNodes, []event{
-		{Type: Timeout, Recipient: 1},
-		{Type: Send, Message: msg{Type: RequestVoteReq}, Sender: 1, Recipient: 2},
-		{Type: Receive, Message: msg{Type: RequestVoteReq}, Sender: 1, Recipient: 2},
-	})
+	interpret(transport, allNodes, ParseLog(traceF))
+	// interpret(transport, allNodes, exampleEvents())
 	select {}
 }
