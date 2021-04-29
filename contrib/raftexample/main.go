@@ -88,6 +88,10 @@ func interpret(transport *Transport, nodes map[int]*raftNode, events []event) {
 				transport.ObserveSent(func(m raftpb.Message) bool {
 					return m.Type == raftpb.MsgVote && m.From == uint64(e.Sender) && m.To == uint64(e.Recipient)
 				})
+			case RequestVoteRes:
+				transport.ObserveSent(func(m raftpb.Message) bool {
+					return m.Type == raftpb.MsgVoteResp && m.From == uint64(e.Sender) && m.To == uint64(e.Recipient)
+				})
 			default:
 				panic(fmt.Sprintf("unknown msg type %s", e.Message.Type))
 			}
@@ -96,6 +100,10 @@ func interpret(transport *Transport, nodes map[int]*raftNode, events []event) {
 			case RequestVoteReq:
 				transport.reallySend(transport.WaitForMessages(func(m raftpb.Message) bool {
 					return m.Type == raftpb.MsgVote && m.From == uint64(e.Sender) && m.To == uint64(e.Recipient)
+				}))
+			case RequestVoteRes:
+				transport.reallySend(transport.WaitForMessages(func(m raftpb.Message) bool {
+					return m.Type == raftpb.MsgVoteResp && m.From == uint64(e.Sender) && m.To == uint64(e.Recipient)
 				}))
 			default:
 				panic(fmt.Sprintf("unknown msg type %s", e.Message.Type))
