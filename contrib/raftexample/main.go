@@ -19,6 +19,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"reflect"
 	"time"
 
 	"go.etcd.io/etcd/raft/v3/raftpb"
@@ -145,6 +146,9 @@ func exampleEvents() []event {
 	}
 }
 
+// This should be comparable via deep equality
+type absState = bool
+
 func main() {
 
 	// Config
@@ -167,10 +171,28 @@ func main() {
 		transport.AddNode(uint64(id), node)
 		allNodes[id] = node
 	}
-	events := ParseLog(traceF)
+	trace, events := ParseLog(traceF)
+
+	// Here's the definition of a simple test
+
+	var specState absState = trace[len(trace)-1].State.History.HadAtLeastOneLeader
+
 	// This objective has to be supplied manually
 	events = append(events, event{Type: BecomeLeader})
 	interpret(transport, allNodes, events)
 	// interpret(transport, allNodes, exampleEvents())
-	select {}
+
+	abstract := func(transport *Transport, nodes map[int]*raftNode) absState {
+		return true
+	}
+
+	implState := abstract(transport, allNodes)
+
+	if reflect.DeepEqual(specState, implState) {
+		fmt.Println("specification state matches implementation state")
+	} else {
+		fmt.Println("specification state does not match implementation state")
+		os.Exit(1)
+	}
+	// select {}
 }

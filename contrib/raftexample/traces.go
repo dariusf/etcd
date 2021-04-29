@@ -137,6 +137,7 @@ type Trace struct {
 				ExecutedOn int    `json:"executedOn"`
 				Msg        tmsg   `json:"msg"`
 			} `json:"global"`
+			HadAtLeastOneLeader bool `json:"hadAtLeastOneLeader"`
 		} `json:"history"`
 	} `json:"state"`
 }
@@ -163,7 +164,7 @@ func preprocessEvents(events []event) []event {
 	return res
 }
 
-func ParseLog(fname string) []event {
+func ParseLog(fname string) ([]Trace, []event) {
 	f, err := os.Open(fname)
 	defer f.Close()
 	if err != nil {
@@ -201,5 +202,5 @@ func ParseLog(fname string) []event {
 			panic("unimplemented action " + fmt.Sprintf("%#v", v))
 		}
 	}
-	return preprocessEvents(res)
+	return trace, preprocessEvents(res)
 }

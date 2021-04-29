@@ -11,9 +11,9 @@ build_traces() {
 build() {
   set -e
   go build -o raftexample
-  ./raftexample $PROJECT_DIR/diff.json
+  ./raftexample $PROJECT_DIR/full.json
   #--id 1 --cluster http://127.0.0.1:12379 --port 12380
-  echo '<end>'
+  echo "rc: $?"
 }
 
 cluster1() {
