@@ -1,3 +1,21 @@
+
+- Clone and build (see below; tested on Go 1.16.3)
+- Get [tla2json](https://github.com/japgolly/tla2json/releases/tag/v1.0.1), [TLC](https://github.com/tlaplus/tlaplus/releases/tag/v1.7.1), Java 14+
+- Generate some traces
+
+```sh
+java -cp tla2tools.jar -XX:+UseParallelGC tlc2.TLC raft.tla | \
+  java -jar tla2json-*.jar -f > traces.json
+```
+
+- Run the interpreter
+
+```sh
+./raftexample traces.json
+```
+
+---
+
 # raftexample
 
 raftexample is an example usage of etcd's [raft library](../../raft). It provides a simple REST API for a key-value store cluster backed by the [Raft][raft] consensus algorithm.
