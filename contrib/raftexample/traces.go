@@ -15,6 +15,7 @@ const (
 	Timeout EventType = iota
 	Send
 	Receive
+	BecomeLeader
 )
 
 func (s EventType) String() string {
@@ -22,15 +23,17 @@ func (s EventType) String() string {
 }
 
 var toString = map[EventType]string{
-	Timeout: "Timeout",
-	Send:    "Send",
-	Receive: "Receive",
+	Timeout:      "Timeout",
+	Send:         "Send",
+	Receive:      "Receive",
+	BecomeLeader: "BecomeLeader",
 }
 
 var toID = map[string]EventType{
-	"Timeout": Timeout,
-	"Send":    Send,
-	"Receive": Receive,
+	"Timeout":      Timeout,
+	"Send":         Send,
+	"Receive":      Receive,
+	"BecomeLeader": BecomeLeader,
 }
 
 func (s EventType) MarshalJSON() ([]byte, error) {
@@ -152,10 +155,9 @@ func preprocessEvents(events []event) []event {
 	res := []event{}
 	for _, e := range events {
 		if e.Sender == e.Recipient {
-			// do nothing
+			// do nothing; ignore self-sends as they don't go through the transport
 		} else {
 			res = append(res, e)
-
 		}
 	}
 	return res
@@ -193,6 +195,8 @@ func ParseLog(fname string) []event {
 				Sender:    v.Msg.Msource,
 				Recipient: v.Msg.Mdest,
 			})
+		} else if v.Action == "BecomeLeader" {
+			panic(fmt.Sprintf("%#v", v) + " should not appear in traces")
 		} else {
 			panic("unimplemented action " + fmt.Sprintf("%#v", v))
 		}

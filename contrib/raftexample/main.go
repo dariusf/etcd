@@ -73,6 +73,19 @@ func pause(e event) {
 	fmt.Printf("----%v\n", e)
 }
 
+func finish() {
+	fmt.Printf("----Finished\n")
+}
+
+func WaitFor(nodes map[int]*raftNode, f func(nodes map[int]*raftNode) bool) {
+	for {
+		if f(nodes) {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
 func interpret(transport *Transport, nodes map[int]*raftNode, events []event) {
 	for _, e := range events {
 		pause(e)
@@ -108,10 +121,20 @@ func interpret(transport *Transport, nodes map[int]*raftNode, events []event) {
 			default:
 				panic(fmt.Sprintf("unknown msg type %s", e.Message.Type))
 			}
+		case BecomeLeader:
+			WaitFor(nodes, func(nodes map[int]*raftNode) bool {
+				for _, n := range nodes {
+					if n.node.Raft().IsLeader() {
+						return true
+					}
+				}
+				return false
+			})
 		default:
 			panic(fmt.Sprintf("unknown event type %s", e.Type))
 		}
 	}
+	finish()
 }
 
 func exampleEvents() []event {
@@ -144,7 +167,10 @@ func main() {
 		transport.AddNode(uint64(id), node)
 		allNodes[id] = node
 	}
-	interpret(transport, allNodes, ParseLog(traceF))
+	events := ParseLog(traceF)
+	// This objective has to be supplied manually
+	events = append(events, event{Type: BecomeLeader})
+	interpret(transport, allNodes, events)
 	// interpret(transport, allNodes, exampleEvents())
 	select {}
 }

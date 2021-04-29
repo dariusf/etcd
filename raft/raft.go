@@ -418,6 +418,10 @@ func (r *raft) send(m pb.Message) {
 	r.msgs = append(r.msgs, m)
 }
 
+func (r *raft) IsLeader() bool {
+	return r.lead == r.id
+}
+
 // sendAppend sends an append RPC with new entries (if any) and the
 // current commit index to the given peer.
 func (r *raft) sendAppend(to uint64) {
