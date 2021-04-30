@@ -188,10 +188,8 @@ func main() {
 
 	implState := abstract(transport, allNodes)
 
-	if reflect.DeepEqual(specState, implState) {
-		fmt.Println("specification state matches implementation state")
-	} else {
-		fmt.Println("specification state does not match implementation state")
+	fmt.Printf("spec state: %#v\nimpl state: %#v\n", specState, implState)
+	if !reflect.DeepEqual(specState, implState) {
 		os.Exit(1)
 	}
 	// select {}
