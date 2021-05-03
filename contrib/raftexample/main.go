@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"strconv"
 	"time"
 
 	"go.etcd.io/etcd/raft/v3/raftpb"
@@ -151,11 +152,9 @@ type absState = bool
 
 func main() {
 
-	// Config
-	nodes := 2
-
 	// Args
-	traceF := os.Args[1]
+	nodes, _ := strconv.Atoi(os.Args[1])
+	traceF := os.Args[2]
 
 	// Wiring
 	transport := newTransport()
