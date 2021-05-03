@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"log"
 	"os"
+	"strconv"
 )
 
 type EventType int
@@ -125,8 +127,8 @@ func ParseFile(fname string) ([]event, error) {
 
 type tmsg struct {
 	Mtype   string `json:"mtype"`
-	Msource int    `json:"msource"`
-	Mdest   int    `json:"mdest"`
+	Msource string `json:"msource"`
+	Mdest   string `json:"mdest"`
 }
 
 type Trace struct {
@@ -134,7 +136,7 @@ type Trace struct {
 		History struct {
 			Global []struct {
 				Action     string `json:"action"`
-				ExecutedOn int    `json:"executedOn"`
+				ExecutedOn string `json:"executedOn"`
 				Msg        tmsg   `json:"msg"`
 			} `json:"global"`
 			HadAtLeastOneLeader bool `json:"hadAtLeastOneLeader"`
@@ -164,42 +166,50 @@ func preprocessEvents(events []event) []event {
 	return res
 }
 
+func parseServerId(name string) int {
+	id, err := strconv.Atoi(name[1:])
+	if err != nil {
+		log.Fatalf("invalid server name %s", name)
+	}
+	return id
+}
+
 func ParseLog(fname string) ([]Trace, []event) {
 	f, err := os.Open(fname)
 	defer f.Close()
 	if err != nil {
-		panic("failed to open file")
+		log.Fatalf("failed to open file %s", fname)
 	}
 	bytes, err := ioutil.ReadAll(f)
 	if err != nil {
-		panic("failed to read file")
+		log.Fatalf("failed to read file %s", fname)
 	}
 	var trace []Trace
 	err1 := json.Unmarshal(bytes, &trace)
 	if err1 != nil {
-		panic("failed to parse json")
+		log.Fatal(err1)
 	}
 	global := trace[len(trace)-1].State.History.Global
 	res := []event{}
 	for _, v := range global {
 		if v.Action == "Timeout" {
-			res = append(res, event{Type: Timeout, Recipient: v.ExecutedOn})
+			res = append(res, event{Type: Timeout, Recipient: parseServerId(v.ExecutedOn)})
 		} else if v.Action == "Send" {
 			res = append(res, event{Type: Send,
 				Message:   convertMsg(v.Msg),
-				Sender:    v.Msg.Msource,
-				Recipient: v.Msg.Mdest,
+				Sender:    parseServerId(v.Msg.Msource),
+				Recipient: parseServerId(v.Msg.Mdest),
 			})
 		} else if v.Action == "Receive" {
 			res = append(res, event{Type: Receive,
 				Message:   convertMsg(v.Msg),
-				Sender:    v.Msg.Msource,
-				Recipient: v.Msg.Mdest,
+				Sender:    parseServerId(v.Msg.Msource),
+				Recipient: parseServerId(v.Msg.Mdest),
 			})
 		} else if v.Action == "BecomeLeader" {
-			panic(fmt.Sprintf("%#v", v) + " should not appear in traces")
+			log.Fatalf("%+v should not appear in traces", v)
 		} else {
-			panic("unimplemented action " + fmt.Sprintf("%#v", v))
+			log.Fatalf("unimplemented action %+v", v)
 		}
 	}
 	return trace, preprocessEvents(res)
