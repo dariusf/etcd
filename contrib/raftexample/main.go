@@ -18,9 +18,9 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"log"
 	"os"
 	"reflect"
-	"strconv"
 	"time"
 
 	"go.etcd.io/etcd/raft/v3/raftpb"
@@ -64,13 +64,15 @@ func createNode(id int, cluster []int, transport *Transport) *raftNode {
 	return n
 }
 
-func pause(e event) {
-	time.Sleep(1 * time.Second)
+func pause(e event, debug bool) {
+	if debug {
+		time.Sleep(1 * time.Second)
 
-	// Alternative to sleeping when interactive
+		// Alternative to sleeping when interactive
 
-	// scanner := bufio.NewScanner(os.Stdin)
-	// scanner.Scan()
+		// scanner := bufio.NewScanner(os.Stdin)
+		// scanner.Scan()
+	}
 
 	fmt.Printf("----%+v\n", e)
 }
@@ -94,10 +96,12 @@ func debugPrint(nodes map[int]*raftNode) {
 	}
 }
 
-func interpret(transport *Transport, nodes map[int]*raftNode, events []event) {
+func interpret(transport *Transport, nodes map[int]*raftNode, events []event, debug bool) {
 	for _, e := range events {
-		pause(e)
-		debugPrint(nodes)
+		pause(e, debug)
+		if debug {
+			debugPrint(nodes)
+		}
 		switch e.Type {
 		case Timeout:
 			nodes[e.Recipient].node.Campaign(context.TODO())
@@ -159,9 +163,18 @@ type absState = bool
 
 func main() {
 
-	// Args
-	nodes, _ := strconv.Atoi(os.Args[1])
-	traceF := os.Args[2]
+	nodes_ := flag.Int("nodes", 0, "number of nodes in the cluster")
+	debug_ := flag.Bool("debug", false, "debug mode")
+	traceF_ := flag.String("file", "", "join an existing cluster")
+	flag.Parse()
+
+	nodes := *nodes_
+	debug := *debug_
+	traceF := *traceF_
+
+	if nodes == 0 || traceF == "" {
+		log.Fatalf("nodes and file are mandatory")
+	}
 
 	// Wiring
 	transport := newTransport()
@@ -183,7 +196,7 @@ func main() {
 
 	var specState absState = trace[len(trace)-1].State.History.HadNumLeaders > 0
 
-	interpret(transport, allNodes, events)
+	interpret(transport, allNodes, events, debug)
 	// interpret(transport, allNodes, exampleEvents())
 
 	abstract := func(transport *Transport, nodes map[int]*raftNode) absState {

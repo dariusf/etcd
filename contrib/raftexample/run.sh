@@ -12,8 +12,8 @@ build() {
   set -e
   go build -o raftexample
   rm -rf raftexample-*
-  # ./raftexample 2 $TRACES_DIR/first-leader/full.json
-  ./raftexample 3 $TRACES_DIR/double-leader/full.json
+  # ./raftexample -nodes 2 -file $TRACES_DIR/first-leader/full.json "$@"
+  ./raftexample -nodes 3 -file $TRACES_DIR/double-leader/full.json "$@"
 
   #--id 1 --cluster http://127.0.0.1:12379 --port 12380
   echo "rc: $?"
