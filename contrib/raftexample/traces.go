@@ -207,7 +207,9 @@ func ParseLog(fname string) ([]Trace, []event) {
 				Recipient: parseServerId(v.Msg.Mdest),
 			})
 		} else if v.Action == "BecomeLeader" {
-			log.Fatalf("%+v should not appear in traces", v)
+			res = append(res, event{Type: BecomeLeader,
+				Recipient: parseServerId(v.ExecutedOn),
+			})
 		} else {
 			log.Fatalf("unimplemented action %+v", v)
 		}

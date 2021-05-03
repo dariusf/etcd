@@ -125,8 +125,8 @@ func interpret(transport *Transport, nodes map[int]*raftNode, events []event) {
 			}
 		case BecomeLeader:
 			WaitFor(nodes, func(nodes map[int]*raftNode) bool {
-				for _, n := range nodes {
-					if n.node.Raft().IsLeader() {
+				for i, n := range nodes {
+					if n.node.Raft().IsLeader() && e.Recipient == i {
 						return true
 					}
 				}
@@ -176,8 +176,6 @@ func main() {
 
 	var specState absState = trace[len(trace)-1].State.History.HadAtLeastOneLeader
 
-	// This objective has to be supplied manually
-	events = append(events, event{Type: BecomeLeader})
 	interpret(transport, allNodes, events)
 	// interpret(transport, allNodes, exampleEvents())
 
