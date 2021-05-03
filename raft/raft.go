@@ -369,6 +369,10 @@ func newRaft(c *Config) *raft {
 	return r
 }
 
+func (r *raft) Log() *raftLog {
+	return r.raftLog
+}
+
 func (r *raft) hasLeader() bool { return r.lead != None }
 
 func (r *raft) softState() *SoftState { return &SoftState{Lead: r.lead, RaftState: r.state} }

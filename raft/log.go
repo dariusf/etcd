@@ -404,3 +404,12 @@ func (l *raftLog) zeroTermOnErrCompacted(t uint64, err error) uint64 {
 	l.logger.Panicf("unexpected error (%v)", err)
 	return 0
 }
+
+func (l *raftLog) Show() string {
+	// s := []string{l.String()}
+	// for _, t := range l.allEntries() {
+	// 	s = append(s, t.String())
+	// }
+	// return strings.Join(s, "\n")
+	return fmt.Sprintf("%+v | %+v", l, l.allEntries())
+}

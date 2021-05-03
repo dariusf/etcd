@@ -72,7 +72,7 @@ func pause(e event) {
 	// scanner := bufio.NewScanner(os.Stdin)
 	// scanner.Scan()
 
-	fmt.Printf("----%v\n", e)
+	fmt.Printf("----%+v\n", e)
 }
 
 func finish() {
@@ -88,9 +88,16 @@ func WaitFor(nodes map[int]*raftNode, f func(nodes map[int]*raftNode) bool) {
 	}
 }
 
+func debugPrint(nodes map[int]*raftNode) {
+	for i, n := range nodes {
+		fmt.Printf("debug: node %d: %s\n", i, n.node.Raft().Log().Show())
+	}
+}
+
 func interpret(transport *Transport, nodes map[int]*raftNode, events []event) {
 	for _, e := range events {
 		pause(e)
+		debugPrint(nodes)
 		switch e.Type {
 		case Timeout:
 			nodes[e.Recipient].node.Campaign(context.TODO())
