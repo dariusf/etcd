@@ -159,6 +159,7 @@ func preprocessEvents(events []event) []event {
 	for _, e := range events {
 		if e.Sender == e.Recipient {
 			// do nothing; ignore self-sends as they don't go through the transport
+			fmt.Printf("Ignored event %+v\n", e)
 		} else {
 			res = append(res, e)
 		}
