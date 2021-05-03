@@ -139,7 +139,7 @@ type Trace struct {
 				ExecutedOn string `json:"executedOn"`
 				Msg        tmsg   `json:"msg"`
 			} `json:"global"`
-			HadAtLeastOneLeader bool `json:"hadAtLeastOneLeader"`
+			HadNumLeaders int `json:"hadNumLeaders"`
 		} `json:"history"`
 	} `json:"state"`
 }

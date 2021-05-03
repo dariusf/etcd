@@ -174,7 +174,7 @@ func main() {
 
 	// Here's the definition of a simple test
 
-	var specState absState = trace[len(trace)-1].State.History.HadAtLeastOneLeader
+	var specState absState = trace[len(trace)-1].State.History.HadNumLeaders > 0
 
 	interpret(transport, allNodes, events)
 	// interpret(transport, allNodes, exampleEvents())
