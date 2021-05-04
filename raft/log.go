@@ -405,6 +405,10 @@ func (l *raftLog) zeroTermOnErrCompacted(t uint64, err error) uint64 {
 	return 0
 }
 
+func (l *raftLog) Entries() []pb.Entry {
+	return l.allEntries()
+}
+
 func (l *raftLog) Show() string {
 	// s := []string{l.String()}
 	// for _, t := range l.allEntries() {

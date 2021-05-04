@@ -9,6 +9,9 @@ import (
 	"log"
 	"os"
 	"strconv"
+	"strings"
+
+	pb "go.etcd.io/etcd/raft/v3/raftpb"
 )
 
 type EventType int
@@ -99,6 +102,44 @@ func (s *MessageType) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
+type EntryType int
+
+const (
+	ConfigEntry EntryType = iota
+	ValueEntry
+)
+
+func (s EntryType) String() string {
+	return etToString[s]
+}
+
+var etToString = map[EntryType]string{
+	ConfigEntry: "ConfigEntry",
+	ValueEntry:  "ValueEntry",
+}
+
+var etToID = map[string]EntryType{
+	"ConfigEntry": ConfigEntry,
+	"ValueEntry":  ValueEntry,
+}
+
+func (s EntryType) MarshalJSON() ([]byte, error) {
+	buffer := bytes.NewBufferString(`"`)
+	buffer.WriteString(etToString[s])
+	buffer.WriteString(`"`)
+	return buffer.Bytes(), nil
+}
+
+func (s *EntryType) UnmarshalJSON(b []byte) error {
+	var j string
+	err := json.Unmarshal(b, &j)
+	if err != nil {
+		return err
+	}
+	*s = etToID[j]
+	return nil
+}
+
 type msg struct {
 	Type MessageType
 }
@@ -137,6 +178,30 @@ type tmsg struct {
 	Mdest   string `json:"mdest"`
 }
 
+type lentry struct {
+	Term        int             `json:"term"`
+	Type        EntryType       `json:"type"`
+	Value       json.RawMessage `json:"value"`
+	normalValue int
+	confValue   []int
+}
+
+func (l lentry) String() string {
+	var v string
+
+	switch l.Type {
+	case ConfigEntry:
+		v = fmt.Sprintf("%v", l.confValue)
+	case ValueEntry:
+		v = fmt.Sprintf("%d", l.normalValue)
+	default:
+		panic(fmt.Sprintf("unknown entry type %s", l.Type))
+	}
+
+	return fmt.Sprintf("{ term: %d, type: %s, value: %s }",
+		l.Term, l.Type.String(), v)
+}
+
 type Trace struct {
 	State struct {
 		History struct {
@@ -147,6 +212,7 @@ type Trace struct {
 			} `json:"global"`
 			HadNumLeaders int `json:"hadNumLeaders"`
 		} `json:"history"`
+		Log map[string][]lentry `json:"log"`
 	} `json:"state"`
 }
 
@@ -186,7 +252,7 @@ func parseServerId(name string) int {
 	return id
 }
 
-func ParseLog(fname string) ([]Trace, []event) {
+func ParseTrace(fname string) ([]Trace, []event) {
 	f, err := os.Open(fname)
 	defer f.Close()
 	if err != nil {
@@ -227,4 +293,100 @@ func ParseLog(fname string) ([]Trace, []event) {
 		}
 	}
 	return trace, preprocessEvents(res)
+}
+
+func convertLEntry(entry lentry) lentry {
+	switch entry.Type {
+	case ConfigEntry:
+		json.Unmarshal(entry.Value, &entry.confValue)
+		return entry
+	case ValueEntry:
+		json.Unmarshal(entry.Value, &entry.normalValue)
+		return entry
+	default:
+		panic(fmt.Sprintf("unknown entry type %s", entry.Type))
+	}
+}
+
+func convertAbsLog(log map[string][]lentry) map[int][]lentry {
+	r := make(map[int][]lentry)
+	for id, v := range log {
+		r1 := []lentry{}
+		for _, e := range v {
+			r1 = append(r1, convertLEntry(e))
+		}
+		r[parseServerId(id)] = r1
+	}
+	return r
+}
+
+// This should be comparable via deep equality
+type absState struct {
+	atLeastOneLeader bool
+	logs             map[int][]lentry
+}
+
+func (s absState) String() string {
+	m := []string{}
+	for k, v := range s.logs {
+		m = append(m, fmt.Sprintf("%d: %s", k, v))
+	}
+	slog := fmt.Sprintf("{ %s }", strings.Join(m, ", "))
+	return fmt.Sprintf("{ atLeastOneLeader: %t, logs: %s }", s.atLeastOneLeader, slog)
+}
+
+func abstractEntryType(t pb.EntryType) EntryType {
+	switch t {
+	case pb.EntryConfChange:
+		return ConfigEntry
+	case pb.EntryConfChangeV2:
+		panic("conf change v2 not yet implemented")
+	case pb.EntryNormal:
+		return ValueEntry
+	default:
+		panic(fmt.Sprintf("unknown entry type %s", t))
+	}
+}
+
+func abstractEntry(log []pb.Entry) []lentry {
+	r := []lentry{}
+	for _, v := range log {
+		// TODO remove the initial conf change entries
+
+		// truncation is okay because the spec won't have extremely long logs
+		term := int(v.Term)
+		typ := abstractEntryType(v.Type)
+		switch v.Type {
+		case pb.EntryNormal:
+			r = append(r, lentry{
+				Term:        term,
+				Type:        typ,
+				normalValue: 0}) // TODO
+		case pb.EntryConfChange:
+			r = append(r, lentry{
+				Term:      term,
+				Type:      typ,
+				confValue: nil}) // TODO
+		case pb.EntryConfChangeV2:
+			panic("conf change v2 unimplemented")
+		default:
+			panic(fmt.Sprintf("unknown entry type %s", v.Type))
+		}
+	}
+	return r
+}
+
+func abstractEntries(nodes map[int]*raftNode) map[int][]lentry {
+	r := make(map[int][]lentry)
+	for id, n := range nodes {
+		r[id] = abstractEntry(n.node.Raft().Log().Entries())
+	}
+	return r
+}
+
+func abstract(transport *Transport, nodes map[int]*raftNode) absState {
+	return absState{
+		atLeastOneLeader: true,
+		logs:             abstractEntries(nodes),
+	}
 }

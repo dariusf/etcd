@@ -174,9 +174,6 @@ func exampleEvents() []event {
 	}
 }
 
-// This should be comparable via deep equality
-type absState = bool
-
 func main() {
 
 	nodes_ := flag.Int("nodes", 0, "number of nodes in the cluster")
@@ -206,22 +203,21 @@ func main() {
 		transport.AddNode(uint64(id), node)
 		allNodes[id] = node
 	}
-	trace, events := ParseLog(traceF)
+	trace, events := ParseTrace(traceF)
 
 	// Here's the definition of a simple test
 
-	var specState absState = trace[len(trace)-1].State.History.HadNumLeaders > 0
+	var specState absState = absState{
+		atLeastOneLeader: trace[len(trace)-1].State.History.HadNumLeaders > 0,
+		logs:             convertAbsLog(trace[len(trace)-1].State.Log),
+	}
 
 	interpret(transport, allNodes, events, debug)
 	// interpret(transport, allNodes, exampleEvents())
 
-	abstract := func(transport *Transport, nodes map[int]*raftNode) absState {
-		return true
-	}
-
 	implState := abstract(transport, allNodes)
 
-	fmt.Printf("spec state: %#v\nimpl state: %#v\n", specState, implState)
+	fmt.Printf("spec state: %s\n\nimpl state: %s\n", specState, implState)
 	if !reflect.DeepEqual(specState, implState) {
 		os.Exit(1)
 	}
