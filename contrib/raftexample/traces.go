@@ -8,6 +8,7 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -327,9 +328,15 @@ type absState struct {
 }
 
 func (s absState) String() string {
+	keys := make([]int, 0, len(s.logs))
+	for k := range s.logs {
+		keys = append(keys, k)
+	}
+	sort.Ints(keys)
+
 	m := []string{}
-	for k, v := range s.logs {
-		m = append(m, fmt.Sprintf("%d: %s", k, v))
+	for _, k := range keys {
+		m = append(m, fmt.Sprintf("%d: %s", k, s.logs[k]))
 	}
 	slog := fmt.Sprintf("{ %s }", strings.Join(m, ", "))
 	return fmt.Sprintf("{ atLeastOneLeader: %t, logs: %s }", s.atLeastOneLeader, slog)

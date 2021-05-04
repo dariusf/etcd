@@ -21,6 +21,7 @@ import (
 	"log"
 	"os"
 	"reflect"
+	"sort"
 	"time"
 
 	"go.etcd.io/etcd/raft/v3/raftpb"
@@ -91,8 +92,15 @@ func WaitFor(nodes map[int]*raftNode, f func(nodes map[int]*raftNode) bool) {
 }
 
 func debugPrint(nodes map[int]*raftNode) {
-	for i, n := range nodes {
-		fmt.Printf("debug: node %d: %s\n", i, n.node.Raft().Log().Show())
+
+	keys := make([]int, 0, len(nodes))
+	for k := range nodes {
+		keys = append(keys, k)
+	}
+	sort.Ints(keys)
+
+	for _, i := range keys {
+		fmt.Printf("debug: node %d: %s\n", i, nodes[i].node.Raft().Log().Show())
 	}
 }
 
