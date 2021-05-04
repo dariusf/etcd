@@ -142,8 +142,38 @@ func (s *EntryType) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
+type lentry struct {
+	Term int       `json:"term"`
+	Type EntryType `json:"type"`
+
+	// A crude sum. We deserialise Value into one
+	// of these fields based on Type
+	Value       json.RawMessage `json:"value"`
+	normalValue int
+	confValue   []int
+}
+
+func (l lentry) String() string {
+	var v string
+
+	switch l.Type {
+	case ConfigEntry:
+		v = fmt.Sprintf("%v", l.confValue)
+	case ValueEntry:
+		v = fmt.Sprintf("%d", l.normalValue)
+	default:
+		panic(fmt.Sprintf("unknown entry type %s", l.Type))
+	}
+
+	return fmt.Sprintf("{ term: %d, type: %s, value: %s }",
+		l.Term, l.Type.String(), v)
+}
+
 type msg struct {
 	Type MessageType
+
+	// Non-null if Type == AppendEntriesReq
+	Entry lentry
 }
 
 type event struct {
@@ -174,34 +204,13 @@ func ParseFile(fname string) ([]event, error) {
 	return r, nil
 }
 
+// These mirror the types in the TLA+ spec
+
 type tmsg struct {
-	Mtype   string `json:"mtype"`
-	Msource string `json:"msource"`
-	Mdest   string `json:"mdest"`
-}
-
-type lentry struct {
-	Term        int             `json:"term"`
-	Type        EntryType       `json:"type"`
-	Value       json.RawMessage `json:"value"`
-	normalValue int
-	confValue   []int
-}
-
-func (l lentry) String() string {
-	var v string
-
-	switch l.Type {
-	case ConfigEntry:
-		v = fmt.Sprintf("%v", l.confValue)
-	case ValueEntry:
-		v = fmt.Sprintf("%d", l.normalValue)
-	default:
-		panic(fmt.Sprintf("unknown entry type %s", l.Type))
-	}
-
-	return fmt.Sprintf("{ term: %d, type: %s, value: %s }",
-		l.Term, l.Type.String(), v)
+	Mtype    string   `json:"mtype"`
+	Msource  string   `json:"msource"`
+	Mdest    string   `json:"mdest"`
+	Mentries []lentry `json:"mentries"`
 }
 
 type Trace struct {
@@ -218,6 +227,8 @@ type Trace struct {
 	} `json:"state"`
 }
 
+// Convert to the more abstract representation of messages
+// the interpreter uses
 func convertMsg(m tmsg) msg {
 	switch m.Mtype {
 	case "RequestVoteRequest":
@@ -225,7 +236,7 @@ func convertMsg(m tmsg) msg {
 	case "RequestVoteResponse":
 		return msg{Type: RequestVoteRes}
 	case "AppendEntriesRequest":
-		return msg{Type: AppendEntriesReq}
+		return msg{Type: AppendEntriesReq, Entry: convertLEntries(m.Mentries)[0]}
 	case "AppendEntriesResponse":
 		return msg{Type: AppendEntriesRes}
 	default:
@@ -310,14 +321,18 @@ func convertLEntry(entry lentry) lentry {
 	}
 }
 
+func convertLEntries(entries []lentry) []lentry {
+	r := []lentry{}
+	for _, e := range entries {
+		r = append(r, convertLEntry(e))
+	}
+	return r
+}
+
 func convertAbsLog(log map[string][]lentry) map[int][]lentry {
 	r := make(map[int][]lentry)
 	for id, v := range log {
-		r1 := []lentry{}
-		for _, e := range v {
-			r1 = append(r1, convertLEntry(e))
-		}
-		r[parseServerId(id)] = r1
+		r[parseServerId(id)] = convertLEntries(v)
 	}
 	return r
 }

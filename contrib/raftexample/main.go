@@ -127,6 +127,7 @@ func interpret(transport *Transport, nodes map[int]*raftNode, events []event, de
 					return m.Type == raftpb.MsgVoteResp && m.From == uint64(e.Sender) && m.To == uint64(e.Recipient)
 				})
 			case AppendEntriesReq:
+				// TODO make use of entries by proposing
 				transport.ObserveSent(func(m raftpb.Message) bool {
 					return m.Type == raftpb.MsgApp && m.From == uint64(e.Sender) && m.To == uint64(e.Recipient)
 				})
