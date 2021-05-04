@@ -13,7 +13,8 @@ build() {
   go build -o raftexample
   rm -rf raftexample-*
   # ./raftexample -nodes 2 -file $TRACES_DIR/first-leader/full.json "$@"
-  ./raftexample -nodes 3 -file $TRACES_DIR/double-leader/full.json "$@"
+  # ./raftexample -nodes 3 -file $TRACES_DIR/double-leader/full.json "$@"
+  ./raftexample -nodes 3 -file $TRACES_DIR/first-commit/full.json "$@"
 
   #--id 1 --cluster http://127.0.0.1:12379 --port 12380
   echo "rc: $?"
@@ -37,11 +38,10 @@ sanity() {
   curl -L http://127.0.0.1:12380/my-key1
 }
 
-if [ "$1" = "1" ]; then
-  build
-  # build_traces
-elif [ -n "$1" ]; then
-  $1
+if [ -n "$1" ]; then
+  fn="$1"
+  shift
+  "$fn" "$@"
 else
-  fd . | entr -c -r ./run.sh 1
+  fd . | entr -c -r ./run.sh build "$@"
 fi

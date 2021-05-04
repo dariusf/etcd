@@ -60,6 +60,8 @@ type MessageType int
 const (
 	RequestVoteReq MessageType = iota
 	RequestVoteRes
+	AppendEntriesReq
+	AppendEntriesRes
 )
 
 func (s MessageType) String() string {
@@ -67,13 +69,17 @@ func (s MessageType) String() string {
 }
 
 var rvToString = map[MessageType]string{
-	RequestVoteReq: "RequestVoteReq",
-	RequestVoteRes: "RequestVoteRes",
+	RequestVoteReq:   "RequestVoteReq",
+	RequestVoteRes:   "RequestVoteRes",
+	AppendEntriesReq: "AppendEntriesReq",
+	AppendEntriesRes: "AppendEntriesRes",
 }
 
 var rvToID = map[string]MessageType{
-	"RequestVoteReq": RequestVoteReq,
-	"RequestVoteRes": RequestVoteRes,
+	"RequestVoteReq":   RequestVoteReq,
+	"RequestVoteRes":   RequestVoteRes,
+	"AppendEntriesReq": AppendEntriesReq,
+	"AppendEntriesRes": AppendEntriesRes,
 }
 
 func (s MessageType) MarshalJSON() ([]byte, error) {
@@ -145,11 +151,16 @@ type Trace struct {
 }
 
 func convertMsg(m tmsg) msg {
-	if m.Mtype == "RequestVoteRequest" {
+	switch m.Mtype {
+	case "RequestVoteRequest":
 		return msg{Type: RequestVoteReq}
-	} else if m.Mtype == "RequestVoteResponse" {
+	case "RequestVoteResponse":
 		return msg{Type: RequestVoteRes}
-	} else {
+	case "AppendEntriesRequest":
+		return msg{Type: AppendEntriesReq}
+	case "AppendEntriesResponse":
+		return msg{Type: AppendEntriesRes}
+	default:
 		panic("unimplemented message type " + m.Mtype)
 	}
 }

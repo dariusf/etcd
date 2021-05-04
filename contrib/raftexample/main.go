@@ -118,8 +118,16 @@ func interpret(transport *Transport, nodes map[int]*raftNode, events []event, de
 				transport.ObserveSent(func(m raftpb.Message) bool {
 					return m.Type == raftpb.MsgVoteResp && m.From == uint64(e.Sender) && m.To == uint64(e.Recipient)
 				})
+			case AppendEntriesReq:
+				transport.ObserveSent(func(m raftpb.Message) bool {
+					return m.Type == raftpb.MsgApp && m.From == uint64(e.Sender) && m.To == uint64(e.Recipient)
+				})
+			case AppendEntriesRes:
+				transport.ObserveSent(func(m raftpb.Message) bool {
+					return m.Type == raftpb.MsgAppResp && m.From == uint64(e.Sender) && m.To == uint64(e.Recipient)
+				})
 			default:
-				panic(fmt.Sprintf("unknown msg type %s", e.Message.Type))
+				log.Fatalf("unknown msg type %s", e.Message.Type)
 			}
 		case Receive:
 			switch e.Message.Type {
@@ -131,8 +139,16 @@ func interpret(transport *Transport, nodes map[int]*raftNode, events []event, de
 				transport.reallySend(transport.WaitForMessages(func(m raftpb.Message) bool {
 					return m.Type == raftpb.MsgVoteResp && m.From == uint64(e.Sender) && m.To == uint64(e.Recipient)
 				}))
+			case AppendEntriesReq:
+				transport.reallySend(transport.WaitForMessages(func(m raftpb.Message) bool {
+					return m.Type == raftpb.MsgApp && m.From == uint64(e.Sender) && m.To == uint64(e.Recipient)
+				}))
+			case AppendEntriesRes:
+				transport.reallySend(transport.WaitForMessages(func(m raftpb.Message) bool {
+					return m.Type == raftpb.MsgAppResp && m.From == uint64(e.Sender) && m.To == uint64(e.Recipient)
+				}))
 			default:
-				panic(fmt.Sprintf("unknown msg type %s", e.Message.Type))
+				log.Fatalf("unknown msg type %s", e.Message.Type)
 			}
 		case BecomeLeader:
 			WaitFor(nodes, func(nodes map[int]*raftNode) bool {
@@ -144,7 +160,7 @@ func interpret(transport *Transport, nodes map[int]*raftNode, events []event, de
 				return false
 			})
 		default:
-			panic(fmt.Sprintf("unknown event type %s", e.Type))
+			log.Fatalf("unknown event type %s", e.Type)
 		}
 	}
 	finish()
