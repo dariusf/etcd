@@ -399,10 +399,23 @@ func abstractEntry(entries []pb.Entry) []lentry {
 	return r
 }
 
+// Get rid of spurious conf changes in prefix of log, as these appear in the implementation only, not the spec
+func removeInitialConfChanges(entries []lentry) []lentry {
+	r := []lentry{}
+	for _, v := range r {
+		if v.Type != ConfigEntry {
+			r = append(r, v)
+		} else {
+			break
+		}
+	}
+	return r
+}
+
 func abstractEntries(nodes map[int]*raftNode) map[int][]lentry {
 	r := make(map[int][]lentry)
 	for id, n := range nodes {
-		r[id] = abstractEntry(n.node.Raft().Log().Entries())
+		r[id] = removeInitialConfChanges(abstractEntry(n.node.Raft().Log().Entries()))
 	}
 	return r
 }
