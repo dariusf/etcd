@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	"go.etcd.io/etcd/raft/v3/raftpb"
 	pb "go.etcd.io/etcd/raft/v3/raftpb"
 )
 
@@ -355,12 +356,13 @@ func abstractEntryType(t pb.EntryType) EntryType {
 	}
 }
 
-func abstractEntry(log []pb.Entry) []lentry {
+func abstractEntry(entries []pb.Entry) []lentry {
 	r := []lentry{}
-	for _, v := range log {
+	confNodes := []int{}
+	for _, v := range entries {
 		// TODO remove the initial conf change entries
 
-		// truncation is okay because the spec won't have extremely long logs
+		// truncation is okay because model checking won't produce long logs
 		term := int(v.Term)
 		typ := abstractEntryType(v.Type)
 		switch v.Type {
@@ -368,12 +370,26 @@ func abstractEntry(log []pb.Entry) []lentry {
 			r = append(r, lentry{
 				Term:        term,
 				Type:        typ,
-				normalValue: 0}) // TODO
+				normalValue: 0}) // TODO this is determined by the app
 		case pb.EntryConfChange:
+
+			// Determine the current conf from the change operations in the log
+			var cc raftpb.ConfChange
+			cc.Unmarshal(v.Data)
+			switch cc.Type {
+			case pb.ConfChangeAddNode:
+				// truncation okay because we won't have a ton of nodes
+				confNodes = append(confNodes, int(cc.NodeID))
+			default:
+				log.Fatalf("unimplemented conf change type %s", cc.Type)
+			}
+			currentConf := make([]int, len(confNodes))
+			copy(currentConf, confNodes)
+
 			r = append(r, lentry{
 				Term:      term,
 				Type:      typ,
-				confValue: nil}) // TODO
+				confValue: currentConf})
 		case pb.EntryConfChangeV2:
 			panic("conf change v2 unimplemented")
 		default:
