@@ -17,6 +17,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -277,14 +278,12 @@ func main() {
 	implState := abstract(transport, allNodes)
 
 	fmt.Println("\nspec state:")
-	// spec, _ := json.MarshalIndent(specState, "", "  ")
-	// fmt.Println(string(spec))
-	fmt.Printf("%+v\n", specState)
+	spec, _ := json.MarshalIndent(specState, "", "  ")
+	fmt.Println(string(spec))
 
 	fmt.Println("\nimpl state:")
-	// impl, _ := json.MarshalIndent(implState, "", "  ")
-	// fmt.Println(string(impl))
-	fmt.Printf("%+v\n", specState)
+	impl, _ := json.MarshalIndent(implState, "", "  ")
+	fmt.Println(string(impl))
 
 	// fmt.Printf("spec state: %s\n\nimpl state: %s\n", specState, implState)
 	// fmt.Printf("spec state: %s\n\nimpl state: %s\n", specState, implState)
