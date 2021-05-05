@@ -354,23 +354,23 @@ func convertAbsLog(log map[string][]lentry) map[int][]lentry {
 
 // This should be comparable via deep equality
 type absState struct {
-	atLeastOneLeader bool
-	logs             map[int][]lentry
+	AtLeastOneLeader bool
+	Logs             map[int][]lentry
 }
 
 func (s absState) String() string {
-	keys := make([]int, 0, len(s.logs))
-	for k := range s.logs {
+	keys := make([]int, 0, len(s.Logs))
+	for k := range s.Logs {
 		keys = append(keys, k)
 	}
 	sort.Ints(keys)
 
 	m := []string{}
 	for _, k := range keys {
-		m = append(m, fmt.Sprintf("%d: %s", k, s.logs[k]))
+		m = append(m, fmt.Sprintf("%d: %s", k, s.Logs[k]))
 	}
 	slog := fmt.Sprintf("{ %s }", strings.Join(m, ", "))
-	return fmt.Sprintf("{ atLeastOneLeader: %t, logs: %s }", s.atLeastOneLeader, slog)
+	return fmt.Sprintf("{ atLeastOneLeader: %t, logs: %s }", s.AtLeastOneLeader, slog)
 }
 
 func abstractEntryType(t pb.EntryType) EntryType {
@@ -464,7 +464,7 @@ func abstractEntries(nodes map[int]*raftNode) map[int][]lentry {
 
 func abstract(transport *Transport, nodes map[int]*raftNode) absState {
 	return absState{
-		atLeastOneLeader: true,
-		logs:             abstractEntries(nodes),
+		AtLeastOneLeader: true,
+		Logs:             abstractEntries(nodes),
 	}
 }
