@@ -314,6 +314,8 @@ func ParseTrace(fname string) ([]Trace, []event) {
 			res = append(res, event{Type: BecomeLeader,
 				Recipient: parseServerId(v.ExecutedOn),
 			})
+		} else if v.Action == "CommitEntry" {
+			// do nothing
 		} else {
 			log.Fatalf("unimplemented action %+v", v)
 		}
