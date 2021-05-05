@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"sync"
 
 	// "net/http"
@@ -16,13 +17,15 @@ type Transport struct {
 	ErrorC chan error
 	inputs map[uint64]chan raftpb.Message
 	raft   map[uint64]*raftNode
+	debug  bool
 }
 
-func newTransport() *Transport {
+func newTransport(debug bool) *Transport {
 	t := &Transport{
 		ErrorC: make(chan error),
 		inputs: make(map[uint64]chan raftpb.Message),
 		raft:   make(map[uint64]*raftNode),
+		debug:  debug,
 	}
 	return t
 }
@@ -47,14 +50,20 @@ var soupL = sync.Mutex{}
 
 // The library calls this
 func (t *Transport) Send(msgs []raftpb.Message) {
+	soupL.Lock()
 	for _, m := range msgs {
-		soupL.Lock()
 		soup = append(soup, m)
-		soupL.Unlock()
+		if t.debug {
+			fmt.Printf("debug soup: %d -> soup: %s\n", m.From, m.Type)
+		}
 	}
+	soupL.Unlock()
+	// t.reallySend(msgs)
 }
 
-// This blocks until the required messages are in the soup
+// This blocks until the required messages are in the soup.
+// The predicate given should be as specific as possible, as
+// this returns as soon as it becomes true.
 func (t *Transport) WaitForMessages(f func(raftpb.Message) bool) []raftpb.Message {
 	for {
 		// Lock only for the start of each iteration, before sleeping
@@ -105,6 +114,9 @@ func (t *Transport) ObserveSent(f func(raftpb.Message) bool) {
 func (t *Transport) reallySend(msgs []raftpb.Message) {
 	for _, m := range msgs {
 		t.inputs[m.To] <- m
+		if t.debug {
+			fmt.Printf("debug soup: soup -> %d: %s\n", m.To, m.Type)
+		}
 	}
 }
 

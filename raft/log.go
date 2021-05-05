@@ -405,6 +405,7 @@ func (l *raftLog) zeroTermOnErrCompacted(t uint64, err error) uint64 {
 	return 0
 }
 
+// Does include unstable entries
 func (l *raftLog) Entries() []pb.Entry {
 	return l.allEntries()
 }

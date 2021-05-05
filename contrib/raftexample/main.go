@@ -15,6 +15,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"flag"
 	"fmt"
@@ -67,7 +68,7 @@ func createNode(id int, cluster []int, transport *Transport) *raftNode {
 
 func pause(e event, debug bool) {
 	if debug {
-		time.Sleep(1 * time.Second)
+		// time.Sleep(1 * time.Second)
 
 		// Alternative to sleeping when interactive
 
@@ -100,8 +101,45 @@ func debugPrint(nodes map[int]*raftNode) {
 	sort.Ints(keys)
 
 	for _, i := range keys {
-		fmt.Printf("debug: node %d: %s\n", i, nodes[i].node.Raft().Log().Show())
+		fmt.Printf("debug state: node %d: %s\n", i, nodes[i].node.Raft().Log().Show())
 	}
+}
+
+// Given a set of messages (represented as a function) sent from a leader
+// to everyone else (the followers), allows them to pass through the soup.
+func clearBroadcast(transport *Transport, nodes map[int]*raftNode, leader int, f func(m raftpb.Message, follower int) bool) {
+	msgs := []raftpb.Message{}
+	for follower := range nodes {
+		if follower == leader {
+			continue
+		}
+		for _, m := range transport.WaitForMessages(func(m raftpb.Message) bool {
+			return f(m, follower)
+		}) {
+			msgs = append(msgs, m)
+		}
+	}
+	transport.reallySend(msgs)
+}
+
+// AppendEntries messages with empty entries (presumably the base case
+// of the leader catching everyone else up) or an entry with empty data
+// (from the leader adding an empty entry to its own log on winning an
+// election) may appear. This allows them all through.
+func clearEmptyAppendEntries(transport *Transport, nodes map[int]*raftNode, leader int) {
+
+	clearBroadcast(transport, nodes, leader, func(m raftpb.Message, follower int) bool {
+		return m.Type == raftpb.MsgApp && m.From == uint64(leader) && m.To == uint64(follower) &&
+			(len(m.Entries) == 0 || len(m.Entries) == 1 && len(m.Entries[0].Data) == 0)
+	})
+
+	// We also have to wait for the responses or they block progress
+	// (subsequent MsgApps)
+
+	clearBroadcast(transport, nodes, leader, func(m raftpb.Message, follower int) bool {
+		return m.Type == raftpb.MsgAppResp && m.From == uint64(follower) && m.To == uint64(leader) &&
+			(len(m.Entries) == 0 || len(m.Entries) == 1 && len(m.Entries[0].Data) == 0)
+	})
 }
 
 func interpret(transport *Transport, nodes map[int]*raftNode, events []event, debug bool) {
@@ -127,9 +165,13 @@ func interpret(transport *Transport, nodes map[int]*raftNode, events []event, de
 					return m.Type == raftpb.MsgVoteResp && m.From == uint64(e.Sender) && m.To == uint64(e.Recipient)
 				})
 			case AppendEntriesReq:
-				// TODO make use of entries by proposing
+
+				bs := serializeValue(e.Message.Entry.normalValue)
+				nodes[e.Sender].node.Propose(context.TODO(), bs)
+
 				transport.ObserveSent(func(m raftpb.Message) bool {
-					return m.Type == raftpb.MsgApp && m.From == uint64(e.Sender) && m.To == uint64(e.Recipient)
+					return m.Type == raftpb.MsgApp && m.From == uint64(e.Sender) && m.To == uint64(e.Recipient) &&
+						(len(m.Entries) == 0 || bytes.Equal(m.Entries[0].Data, bs))
 				})
 			case AppendEntriesRes:
 				transport.ObserveSent(func(m raftpb.Message) bool {
@@ -160,14 +202,22 @@ func interpret(transport *Transport, nodes map[int]*raftNode, events []event, de
 				log.Fatalf("unknown msg type %s", e.Message.Type)
 			}
 		case BecomeLeader:
+			leader := e.Recipient
 			WaitFor(nodes, func(nodes map[int]*raftNode) bool {
 				for i, n := range nodes {
-					if n.node.Raft().IsLeader() && e.Recipient == i {
+					if n.node.Raft().IsLeader() && leader == i {
 						return true
 					}
 				}
 				return false
 			})
+
+			// For the empty entries leaders add to their own logs
+			clearEmptyAppendEntries(transport, nodes, leader)
+
+			// Presumably the base case of leaders catching followers up
+			clearEmptyAppendEntries(transport, nodes, leader)
+
 		default:
 			log.Fatalf("unknown event type %s", e.Type)
 		}
@@ -199,7 +249,7 @@ func main() {
 	}
 
 	// Wiring
-	transport := newTransport()
+	transport := newTransport(debug)
 
 	cluster := []int{}
 	for i := 1; i <= nodes; i++ {

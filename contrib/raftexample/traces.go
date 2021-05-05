@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -142,6 +143,8 @@ func (s *EntryType) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
+type entryValue = int
+
 type lentry struct {
 	Term int       `json:"term"`
 	Type EntryType `json:"type"`
@@ -149,8 +152,18 @@ type lentry struct {
 	// A crude sum. We deserialise Value into one
 	// of these fields based on Type
 	Value       json.RawMessage `json:"value"`
-	normalValue int
+	normalValue entryValue
 	confValue   []int
+}
+
+func serializeValue(v entryValue) []byte {
+	bs := make([]byte, 4)
+	binary.LittleEndian.PutUint32(bs, uint32(v))
+	return bs
+}
+
+func deserializeValue(v []byte) entryValue {
+	return int(binary.LittleEndian.Uint32(v))
 }
 
 func (l lentry) String() string {
@@ -374,23 +387,29 @@ func abstractEntryType(t pb.EntryType) EntryType {
 func abstractEntry(entries []pb.Entry) []lentry {
 	r := []lentry{}
 	confNodes := []int{}
-	for _, v := range entries {
-		// TODO remove the initial conf change entries
+	for _, e := range entries {
 
 		// truncation is okay because model checking won't produce long logs
-		term := int(v.Term)
-		typ := abstractEntryType(v.Type)
-		switch v.Type {
+		term := int(e.Term)
+		typ := abstractEntryType(e.Type)
+
+		switch e.Type {
 		case pb.EntryNormal:
+			var val entryValue
+			if len(e.Data) == 0 {
+				val = 0
+			} else {
+				val = deserializeValue(e.Data)
+			}
 			r = append(r, lentry{
 				Term:        term,
 				Type:        typ,
-				normalValue: 0}) // TODO this is determined by the app
+				normalValue: val})
 		case pb.EntryConfChange:
 
 			// Determine the current conf from the change operations in the log
 			var cc raftpb.ConfChange
-			cc.Unmarshal(v.Data)
+			cc.Unmarshal(e.Data)
 			switch cc.Type {
 			case pb.ConfChangeAddNode:
 				// truncation okay because we won't have a ton of nodes
@@ -408,7 +427,7 @@ func abstractEntry(entries []pb.Entry) []lentry {
 		case pb.EntryConfChangeV2:
 			panic("conf change v2 unimplemented")
 		default:
-			panic(fmt.Sprintf("unknown entry type %s", v.Type))
+			panic(fmt.Sprintf("unknown entry type %s", e.Type))
 		}
 	}
 	return r
@@ -417,11 +436,17 @@ func abstractEntry(entries []pb.Entry) []lentry {
 // Get rid of spurious conf changes in prefix of log, as these appear in the implementation only, not the spec
 func removeInitialConfChanges(entries []lentry) []lentry {
 	r := []lentry{}
-	for _, v := range r {
-		if v.Type != ConfigEntry {
-			r = append(r, v)
+	prefix := true
+	for _, v := range entries {
+		if prefix {
+			if v.Type == ConfigEntry {
+				continue
+			} else {
+				prefix = false
+				r = append(r, v)
+			}
 		} else {
-			break
+			r = append(r, v)
 		}
 	}
 	return r
