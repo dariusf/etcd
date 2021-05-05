@@ -17,7 +17,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -268,8 +267,8 @@ func main() {
 	// Here's the definition of a simple test
 
 	var specState absState = absState{
-		AtLeastOneLeader: trace[len(trace)-1].State.History.HadNumLeaders > 0,
-		Logs:             convertAbsLog(trace[len(trace)-1].State.Log),
+		atLeastOneLeader: trace[len(trace)-1].State.History.HadNumLeaders > 0,
+		logs:             convertAbsLog(trace[len(trace)-1].State.Log),
 	}
 
 	interpret(transport, allNodes, events, debug)
@@ -277,17 +276,7 @@ func main() {
 
 	implState := abstract(transport, allNodes)
 
-	fmt.Println("\nspec state:")
-	spec, _ := json.MarshalIndent(specState, "", "  ")
-	fmt.Println(string(spec))
-
-	fmt.Println("\nimpl state:")
-	impl, _ := json.MarshalIndent(implState, "", "  ")
-	fmt.Println(string(impl))
-
-	// fmt.Printf("spec state: %s\n\nimpl state: %s\n", specState, implState)
-	// fmt.Printf("spec state: %s\n\nimpl state: %s\n", specState, implState)
-
+	fmt.Printf("spec state: %s\n\nimpl state: %s\n", specState, implState)
 	if !reflect.DeepEqual(specState, implState) {
 		os.Exit(1)
 	}
