@@ -12,12 +12,17 @@ build() {
   set -e
   go build -o raftexample
   rm -rf raftexample-*
-  # ./raftexample -nodes 2 -file $TRACES_DIR/first-leader/full.json "$@"
-  # ./raftexample -nodes 3 -file $TRACES_DIR/double-leader/full.json "$@"
-  ./raftexample -nodes 3 -file $TRACES_DIR/first-commit/full.json "$@"
+  # ./raftexample -nodes 2 -file $TRACES_DIR/01-first-leader/full.json "$@"
+  # ./raftexample -nodes 3 -file $TRACES_DIR/02-double-leader/full.json "$@"
+  ./raftexample -nodes 3 -file $TRACES_DIR/03-first-commit/full.json "$@"
 
   #--id 1 --cluster http://127.0.0.1:12379 --port 12380
   echo "rc: $?"
+}
+
+build_only() {
+  go build -o raftexample
+  echo done
 }
 
 cluster1() {
@@ -43,5 +48,5 @@ if [ -n "$1" ]; then
   shift
   "$fn" "$@"
 else
-  fd . | entr -c -r ./run.sh build "$@"
+  fd . | entr -c -r ./run.sh build_only "$@"
 fi
