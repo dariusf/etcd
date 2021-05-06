@@ -15,31 +15,28 @@ import (
 
 type Transport struct {
 	ErrorC chan error
-	inputs map[uint64]chan raftpb.Message
-	raft   map[uint64]*raftNode
+	inputs map[int]chan raftpb.Message
 	debug  bool
 }
 
 func newTransport(debug bool) *Transport {
 	t := &Transport{
 		ErrorC: make(chan error),
-		inputs: make(map[uint64]chan raftpb.Message),
-		raft:   make(map[uint64]*raftNode),
+		inputs: make(map[int]chan raftpb.Message),
 		debug:  debug,
 	}
 	return t
 }
 
-func (t *Transport) AddNode(id uint64, r *raftNode) {
+func (t *Transport) AddNode(id int, nodes map[int]*raftNode) {
 	t.inputs[id] = make(chan raftpb.Message)
-	t.raft[id] = r
-	go t.Handle(id, r)
+	go t.Handle(id, nodes)
 }
 
-func (t *Transport) Handle(id uint64, r *raftNode) {
+func (t *Transport) Handle(id int, nodes map[int]*raftNode) {
 	for {
 		m := <-t.inputs[id]
-		r.Process(context.TODO(), m)
+		nodes[id].Process(context.TODO(), m)
 	}
 }
 
@@ -113,7 +110,7 @@ func (t *Transport) ObserveSent(f func(raftpb.Message) bool) {
 
 func (t *Transport) reallySend(msgs []raftpb.Message) {
 	for _, m := range msgs {
-		t.inputs[m.To] <- m
+		t.inputs[int(m.To)] <- m
 		if t.debug {
 			fmt.Printf("debug soup: soup -> %d: %s\n", m.To, m.Type)
 		}

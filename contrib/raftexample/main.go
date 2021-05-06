@@ -258,9 +258,8 @@ func main() {
 
 	allNodes := map[int]*raftNode{}
 	for _, id := range cluster {
-		node := createNode(id, cluster, transport)
-		transport.AddNode(uint64(id), node)
-		allNodes[id] = node
+		allNodes[id] = createNode(id, cluster, transport, false)
+		transport.AddNode(id, allNodes)
 	}
 	trace, events := ParseTrace(traceF)
 
