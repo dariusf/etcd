@@ -51,7 +51,7 @@ func (t *Transport) Send(msgs []raftpb.Message) {
 	for _, m := range msgs {
 		soup = append(soup, m)
 		if t.debug {
-			fmt.Printf("debug soup: %d -> soup: %s\n", m.From, m.Type)
+			fmt.Printf("debug soup: %d -> soup (to %d): %s\n", m.From, m.To, m.Type)
 		}
 	}
 	soupL.Unlock()
@@ -112,7 +112,7 @@ func (t *Transport) reallySend(msgs []raftpb.Message) {
 	for _, m := range msgs {
 		t.inputs[int(m.To)] <- m
 		if t.debug {
-			fmt.Printf("debug soup: soup -> %d: %s\n", m.To, m.Type)
+			fmt.Printf("debug soup: soup (from %d) -> %d: %s\n", m.From, m.To, m.Type)
 		}
 	}
 }
