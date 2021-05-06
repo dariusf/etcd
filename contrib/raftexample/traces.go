@@ -24,6 +24,7 @@ const (
 	Send
 	Receive
 	BecomeLeader
+	Restart
 )
 
 func (s EventType) String() string {
@@ -35,6 +36,7 @@ var toString = map[EventType]string{
 	Send:         "Send",
 	Receive:      "Receive",
 	BecomeLeader: "BecomeLeader",
+	Restart:      "Restart",
 }
 
 var toID = map[string]EventType{
@@ -42,6 +44,7 @@ var toID = map[string]EventType{
 	"Send":         Send,
 	"Receive":      Receive,
 	"BecomeLeader": BecomeLeader,
+	"Restart":      Restart,
 }
 
 func (s EventType) MarshalJSON() ([]byte, error) {
@@ -319,6 +322,10 @@ func ParseTrace(fname string) ([]Trace, []event) {
 			})
 		} else if v.Action == "CommitEntry" {
 			// do nothing
+		} else if v.Action == "Restart" {
+			res = append(res, event{Type: Restart,
+				Recipient: parseServerId(v.ExecutedOn),
+			})
 		} else {
 			log.Fatalf("unimplemented action %+v", v)
 		}
