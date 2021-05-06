@@ -52,7 +52,7 @@ func main1() {
 	serveHttpKVAPI(kvs, *kvport, confChangeC, errorC)
 }
 
-func createNode(id int, cluster []int, transport *Transport) *raftNode {
+func createNode(id int, cluster []int, transport *Transport, restarted bool) *raftNode {
 	proposeC := make(chan string)
 	// TODO these should live as long as the program does
 	// defer close(proposeC)
@@ -61,7 +61,7 @@ func createNode(id int, cluster []int, transport *Transport) *raftNode {
 	var kvs *kvstore
 	getSnapshot := func() ([]byte, error) { return kvs.getSnapshot() }
 	commitC, errorC, snapshotterReady, n := newRaftNode(id,
-		cluster, false, getSnapshot, proposeC, confChangeC, transport)
+		cluster, restarted, getSnapshot, proposeC, confChangeC, transport)
 	kvs = newKVStore(<-snapshotterReady, proposeC, commitC, errorC)
 	return n
 }
@@ -142,6 +142,23 @@ func clearEmptyAppendEntries(transport *Transport, nodes map[int]*raftNode, lead
 	})
 }
 
+func restartNode(id int, nodes map[int]*raftNode, transport *Transport) {
+	// This channel is unbuffered and calls Stop(), which blocks
+	// until cleanup is done, as we want
+	close(nodes[id].stopc)
+
+	// Wait for WAL lock to be released...
+	// This is the lock package https://pkg.go.dev/go.etcd.io/etcd/pkg/fileutil
+	time.Sleep(1 * time.Second)
+
+	// Remember the current configuration and pass it back in
+	cluster := nodes[id].peers
+
+	// Recreating this calls RestartNode down the line, which
+	// acts differently depending on if the WAL is present
+	nodes[id] = createNode(id, cluster, transport, true)
+}
+
 func interpret(transport *Transport, nodes map[int]*raftNode, events []event, debug bool) {
 	for _, e := range events {
 		pause(e, debug)
@@ -217,6 +234,14 @@ func interpret(transport *Transport, nodes map[int]*raftNode, events []event, de
 
 			// Presumably the base case of leaders catching followers up
 			clearEmptyAppendEntries(transport, nodes, leader)
+		case Restart:
+
+			restartNode(e.Recipient, nodes, transport)
+
+			// There's no obvious way to synchronize here, even
+			// though it might take some time for the node to come
+			// up. That should be harmless, though, as other actions
+			// are synchronized.
 
 		default:
 			log.Fatalf("unknown event type %s", e.Type)

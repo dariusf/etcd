@@ -334,7 +334,8 @@ func (rc *raftNode) stop() {
 func (rc *raftNode) stopHTTP() {
 	rc.transport.Stop()
 	close(rc.httpstopc)
-	<-rc.httpdonec
+	// We never start the http server, so this channel is never written to
+	// <-rc.httpdonec
 }
 
 func (rc *raftNode) publishSnapshot(snapshotToSave raftpb.Snapshot) {
