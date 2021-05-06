@@ -25,6 +25,8 @@ const (
 	Receive
 	BecomeLeader
 	Restart
+	TryRemoveServer
+	RemoveServer
 )
 
 func (s EventType) String() string {
@@ -32,19 +34,23 @@ func (s EventType) String() string {
 }
 
 var toString = map[EventType]string{
-	Timeout:      "Timeout",
-	Send:         "Send",
-	Receive:      "Receive",
-	BecomeLeader: "BecomeLeader",
-	Restart:      "Restart",
+	Timeout:         "Timeout",
+	Send:            "Send",
+	Receive:         "Receive",
+	BecomeLeader:    "BecomeLeader",
+	Restart:         "Restart",
+	TryRemoveServer: "TryRemoveServer",
+	RemoveServer:    "RemoveServer",
 }
 
 var toID = map[string]EventType{
-	"Timeout":      Timeout,
-	"Send":         Send,
-	"Receive":      Receive,
-	"BecomeLeader": BecomeLeader,
-	"Restart":      Restart,
+	"Timeout":         Timeout,
+	"Send":            Send,
+	"Receive":         Receive,
+	"BecomeLeader":    BecomeLeader,
+	"Restart":         Restart,
+	"TryRemoveServer": TryRemoveServer,
+	"RemoveServer":    RemoveServer,
 }
 
 func (s EventType) MarshalJSON() ([]byte, error) {
@@ -235,6 +241,7 @@ type Trace struct {
 			Global []struct {
 				Action     string `json:"action"`
 				ExecutedOn string `json:"executedOn"`
+				Removed    string `json:"removed"`
 				Msg        tmsg   `json:"msg"`
 			} `json:"global"`
 			HadNumLeaders int `json:"hadNumLeaders"`
@@ -305,17 +312,21 @@ func ParseTrace(fname string) ([]Trace, []event) {
 		if v.Action == "Timeout" {
 			res = append(res, event{Type: Timeout, Recipient: parseServerId(v.ExecutedOn)})
 		} else if v.Action == "Send" {
-			res = append(res, event{Type: Send,
-				Message:   convertMsg(v.Msg),
-				Sender:    parseServerId(v.Msg.Msource),
-				Recipient: parseServerId(v.Msg.Mdest),
-			})
+			if v.Msg.Mtype != "CheckOldConfig" {
+				res = append(res, event{Type: Send,
+					Message:   convertMsg(v.Msg),
+					Sender:    parseServerId(v.Msg.Msource),
+					Recipient: parseServerId(v.Msg.Mdest),
+				})
+			}
 		} else if v.Action == "Receive" {
-			res = append(res, event{Type: Receive,
-				Message:   convertMsg(v.Msg),
-				Sender:    parseServerId(v.Msg.Msource),
-				Recipient: parseServerId(v.Msg.Mdest),
-			})
+			if v.Msg.Mtype != "CheckOldConfig" {
+				res = append(res, event{Type: Receive,
+					Message:   convertMsg(v.Msg),
+					Sender:    parseServerId(v.Msg.Msource),
+					Recipient: parseServerId(v.Msg.Mdest),
+				})
+			}
 		} else if v.Action == "BecomeLeader" {
 			res = append(res, event{Type: BecomeLeader,
 				Recipient: parseServerId(v.ExecutedOn),
@@ -325,6 +336,16 @@ func ParseTrace(fname string) ([]Trace, []event) {
 		} else if v.Action == "Restart" {
 			res = append(res, event{Type: Restart,
 				Recipient: parseServerId(v.ExecutedOn),
+			})
+		} else if v.Action == "TryRemoveServer" {
+			res = append(res, event{Type: TryRemoveServer,
+				// Overload this field
+				Sender:    parseServerId(v.Removed),
+				Recipient: parseServerId(v.ExecutedOn),
+			})
+		} else if v.Action == "RemoveServer" {
+			res = append(res, event{Type: RemoveServer,
+				Recipient: parseServerId(v.Removed),
 			})
 		} else {
 			log.Fatalf("unimplemented action %+v", v)
@@ -426,6 +447,14 @@ func abstractEntry(entries []pb.Entry) []lentry {
 			case pb.ConfChangeAddNode:
 				// truncation okay because we won't have a ton of nodes
 				confNodes = append(confNodes, int(cc.NodeID))
+			case pb.ConfChangeRemoveNode:
+				cn := []int{}
+				for _, v := range confNodes {
+					if v != int(cc.NodeID) { // truncation ok
+						cn = append(cn, v)
+					}
+				}
+				confNodes = cn
 			default:
 				log.Fatalf("unimplemented conf change type %s", cc.Type)
 			}

@@ -56,6 +56,9 @@ type interpreter struct {
 	transport *Transport
 	nodes     map[int]*raftNode
 
+	// Assume that only one conf change can take place at a time in traces
+	confChange *raftpb.ConfChange
+
 	// Each node should have two corresponding channels, for closing them
 	proposeC map[int]chan string
 	errorC   map[int]<-chan error
@@ -256,6 +259,26 @@ func (itp *interpreter) interpret(events []event, debug bool) {
 			// up. That should be harmless, though, as other actions
 			// are synchronized.
 
+		case TryRemoveServer:
+			if itp.confChange != nil {
+				log.Fatalf("no more than one conf change may be attempted at once")
+			}
+			cc := &raftpb.ConfChange{
+				Type:   raftpb.ConfChangeRemoveNode,
+				NodeID: uint64(e.Sender),
+			}
+			itp.confChange = cc
+			itp.nodes[e.Recipient].node.ProposeConfChange(context.TODO(), cc)
+			// TODO synchronization?
+
+		case RemoveServer:
+			if itp.confChange == nil {
+				log.Fatalf("no prior attempt to try removing server before actually removing")
+			}
+			itp.nodes[e.Recipient].node.ApplyConfChange(itp.confChange)
+			itp.confChange = nil
+			// TODO synchronization?
+
 		default:
 			log.Fatalf("unknown event type %s", e.Type)
 		}
@@ -287,16 +310,16 @@ func main() {
 	}
 
 	// Wiring
-	cluster := []int{}
-	for i := 1; i <= nodes; i++ {
-		cluster = append(cluster, i)
-	}
-
 	itp := interpreter{
 		transport: newTransport(debug),
 		nodes:     map[int]*raftNode{},
 		proposeC:  map[int]chan string{},
 		errorC:    map[int]<-chan error{},
+	}
+
+	cluster := []int{}
+	for i := 1; i <= nodes; i++ {
+		cluster = append(cluster, i)
 	}
 
 	for _, id := range cluster {
