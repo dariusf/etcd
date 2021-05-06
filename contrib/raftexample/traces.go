@@ -293,6 +293,9 @@ func ParseTrace(fname string) ([]Trace, []event) {
 	if err1 != nil {
 		log.Fatal(err1)
 	}
+	if len(trace) == 0 {
+		log.Fatalf("nonempty trace required")
+	}
 	global := trace[len(trace)-1].State.History.Global
 	res := []event{}
 	for _, v := range global {
