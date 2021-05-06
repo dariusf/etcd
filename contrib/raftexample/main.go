@@ -147,9 +147,6 @@ func restartNode(id int, nodes map[int]*raftNode, transport *Transport) {
 	// until cleanup is done, as we want
 	close(nodes[id].stopc)
 
-	// Wait for WAL lock to be released...
-	// This is the lock package https://pkg.go.dev/go.etcd.io/etcd/pkg/fileutil
-	time.Sleep(1 * time.Second)
 
 	// Remember the current configuration and pass it back in
 	cluster := nodes[id].peers

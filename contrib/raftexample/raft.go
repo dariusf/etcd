@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"time"
 
 	"go.etcd.io/etcd/client/pkg/v3/fileutil"
 	"go.etcd.io/etcd/client/pkg/v3/types"
@@ -230,12 +231,17 @@ func (rc *raftNode) openWAL(snapshot *raftpb.Snapshot) *wal.WAL {
 		walsnap.Index, walsnap.Term = snapshot.Metadata.Index, snapshot.Metadata.Term
 	}
 	log.Printf("loading WAL at term %d and index %d", walsnap.Term, walsnap.Index)
-	w, err := wal.Open(zap.NewExample(), rc.waldir, walsnap)
-	if err != nil {
-		log.Fatalf("raftexample: error loading wal (%v)", err)
-	}
+	for {
+		w, err := wal.Open(zap.NewExample(), rc.waldir, walsnap)
+		if err != nil {
+			log.Printf("raftexample: error loading wal (%v); retrying", err)
+			time.Sleep(1 * time.Second)
+			continue
+		}
+		log.Println("raftexample: wal loaded")
 
-	return w
+		return w
+	}
 }
 
 // replayWAL replays WAL entries into the raft instance.
@@ -407,6 +413,9 @@ func (rc *raftNode) serveChannels() {
 	rc.appliedIndex = snap.Metadata.Index
 
 	defer rc.wal.Close()
+	defer func() {
+		fmt.Println("WAL closed")
+	}()
 
 	// ticker := time.NewTicker(100 * time.Millisecond)
 	// defer ticker.Stop()
