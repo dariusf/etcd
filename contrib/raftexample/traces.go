@@ -467,6 +467,7 @@ func removeInitialConfChanges(entries []lentry) []lentry {
 func abstractEntries(nodes map[int]*raftNode) map[int][]lentry {
 	r := make(map[int][]lentry)
 	for id, n := range nodes {
+		// TODO there's a null pointer here sometimes
 		r[id] = removeInitialConfChanges(abstractEntry(n.node.Raft().Log().Entries()))
 	}
 	return r

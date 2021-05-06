@@ -52,7 +52,16 @@ func main1() {
 	serveHttpKVAPI(kvs, *kvport, confChangeC, errorC)
 }
 
-func createNode(id int, cluster []int, transport *Transport, restarted bool) *raftNode {
+type interpreter struct {
+	transport *Transport
+	nodes     map[int]*raftNode
+
+	// Each node should have two corresponding channels, for closing them
+	proposeC map[int]chan string
+	errorC   map[int]<-chan error
+}
+
+func (itp *interpreter) createNode(id int, cluster []int, restarted bool) {
 	proposeC := make(chan string)
 	// TODO these should live as long as the program does
 	// defer close(proposeC)
@@ -61,9 +70,12 @@ func createNode(id int, cluster []int, transport *Transport, restarted bool) *ra
 	var kvs *kvstore
 	getSnapshot := func() ([]byte, error) { return kvs.getSnapshot() }
 	commitC, errorC, snapshotterReady, n := newRaftNode(id,
-		cluster, restarted, getSnapshot, proposeC, confChangeC, transport)
+		cluster, restarted, getSnapshot, proposeC, confChangeC, itp.transport)
 	kvs = newKVStore(<-snapshotterReady, proposeC, commitC, errorC)
-	return n
+
+	itp.nodes[id] = n
+	itp.proposeC[id] = proposeC
+	itp.errorC[id] = errorC
 }
 
 func pause(e event, debug bool) {
@@ -107,28 +119,28 @@ func debugPrint(nodes map[int]*raftNode) {
 
 // Given a set of messages (represented as a function) sent from a leader
 // to everyone else (the followers), allows them to pass through the soup.
-func clearBroadcast(transport *Transport, nodes map[int]*raftNode, leader int, f func(m raftpb.Message, follower int) bool) {
+func (i interpreter) clearBroadcast(leader int, f func(m raftpb.Message, follower int) bool) {
 	msgs := []raftpb.Message{}
-	for follower := range nodes {
+	for follower := range i.nodes {
 		if follower == leader {
 			continue
 		}
-		for _, m := range transport.WaitForMessages(func(m raftpb.Message) bool {
+		for _, m := range i.transport.WaitForMessages(func(m raftpb.Message) bool {
 			return f(m, follower)
 		}) {
 			msgs = append(msgs, m)
 		}
 	}
-	transport.reallySend(msgs)
+	i.transport.reallySend(msgs)
 }
 
 // AppendEntries messages with empty entries (presumably the base case
 // of the leader catching everyone else up) or an entry with empty data
 // (from the leader adding an empty entry to its own log on winning an
 // election) may appear. This allows them all through.
-func clearEmptyAppendEntries(transport *Transport, nodes map[int]*raftNode, leader int) {
+func (itp *interpreter) clearEmptyAppendEntries(leader int) {
 
-	clearBroadcast(transport, nodes, leader, func(m raftpb.Message, follower int) bool {
+	itp.clearBroadcast(leader, func(m raftpb.Message, follower int) bool {
 		return m.Type == raftpb.MsgApp && m.From == uint64(leader) && m.To == uint64(follower) &&
 			(len(m.Entries) == 0 || len(m.Entries) == 1 && len(m.Entries[0].Data) == 0)
 	})
@@ -136,59 +148,63 @@ func clearEmptyAppendEntries(transport *Transport, nodes map[int]*raftNode, lead
 	// We also have to wait for the responses or they block progress
 	// (subsequent MsgApps)
 
-	clearBroadcast(transport, nodes, leader, func(m raftpb.Message, follower int) bool {
+	itp.clearBroadcast(leader, func(m raftpb.Message, follower int) bool {
 		return m.Type == raftpb.MsgAppResp && m.From == uint64(follower) && m.To == uint64(leader) &&
 			(len(m.Entries) == 0 || len(m.Entries) == 1 && len(m.Entries[0].Data) == 0)
 	})
 }
 
-func restartNode(id int, nodes map[int]*raftNode, transport *Transport) {
-	// This channel is unbuffered and calls Stop(), which blocks
-	// until cleanup is done, as we want
-	close(nodes[id].stopc)
+func (itp *interpreter) restartNode(id int) {
 
+	// Remember current configuration to pass it back in later
+	cluster := itp.nodes[id].peers
 
-	// Remember the current configuration and pass it back in
-	cluster := nodes[id].peers
+	// Shut the node down, as newRaftNode tells us to do.
+	// This in turn closes i.nodes[id].stopc, which causes
+	// raftNode.stop to be called. All of this blocks
+	// until cleanup is done, as we want.
+
+	close(itp.proposeC[id])
+	<-itp.errorC[id]
 
 	// Recreating this calls RestartNode down the line, which
 	// acts differently depending on if the WAL is present
-	nodes[id] = createNode(id, cluster, transport, true)
+	itp.createNode(id, cluster, true)
 }
 
-func interpret(transport *Transport, nodes map[int]*raftNode, events []event, debug bool) {
+func (itp *interpreter) interpret(events []event, debug bool) {
 	for _, e := range events {
 		pause(e, debug)
 		if debug {
-			debugPrint(nodes)
+			debugPrint(itp.nodes)
 		}
 		switch e.Type {
 		case Timeout:
-			nodes[e.Recipient].node.Campaign(context.TODO())
-			transport.ObserveSent(func(m raftpb.Message) bool {
+			itp.nodes[e.Recipient].node.Campaign(context.TODO())
+			itp.transport.ObserveSent(func(m raftpb.Message) bool {
 				return m.Type == raftpb.MsgVote && m.From == uint64(e.Recipient)
 			})
 		case Send:
 			switch e.Message.Type {
 			case RequestVoteReq:
-				transport.ObserveSent(func(m raftpb.Message) bool {
+				itp.transport.ObserveSent(func(m raftpb.Message) bool {
 					return m.Type == raftpb.MsgVote && m.From == uint64(e.Sender) && m.To == uint64(e.Recipient)
 				})
 			case RequestVoteRes:
-				transport.ObserveSent(func(m raftpb.Message) bool {
+				itp.transport.ObserveSent(func(m raftpb.Message) bool {
 					return m.Type == raftpb.MsgVoteResp && m.From == uint64(e.Sender) && m.To == uint64(e.Recipient)
 				})
 			case AppendEntriesReq:
 
 				bs := serializeValue(e.Message.Entry.normalValue)
-				nodes[e.Sender].node.Propose(context.TODO(), bs)
+				itp.nodes[e.Sender].node.Propose(context.TODO(), bs)
 
-				transport.ObserveSent(func(m raftpb.Message) bool {
+				itp.transport.ObserveSent(func(m raftpb.Message) bool {
 					return m.Type == raftpb.MsgApp && m.From == uint64(e.Sender) && m.To == uint64(e.Recipient) &&
 						(len(m.Entries) == 0 || bytes.Equal(m.Entries[0].Data, bs))
 				})
 			case AppendEntriesRes:
-				transport.ObserveSent(func(m raftpb.Message) bool {
+				itp.transport.ObserveSent(func(m raftpb.Message) bool {
 					return m.Type == raftpb.MsgAppResp && m.From == uint64(e.Sender) && m.To == uint64(e.Recipient)
 				})
 			default:
@@ -197,19 +213,19 @@ func interpret(transport *Transport, nodes map[int]*raftNode, events []event, de
 		case Receive:
 			switch e.Message.Type {
 			case RequestVoteReq:
-				transport.reallySend(transport.WaitForMessages(func(m raftpb.Message) bool {
+				itp.transport.reallySend(itp.transport.WaitForMessages(func(m raftpb.Message) bool {
 					return m.Type == raftpb.MsgVote && m.From == uint64(e.Sender) && m.To == uint64(e.Recipient)
 				}))
 			case RequestVoteRes:
-				transport.reallySend(transport.WaitForMessages(func(m raftpb.Message) bool {
+				itp.transport.reallySend(itp.transport.WaitForMessages(func(m raftpb.Message) bool {
 					return m.Type == raftpb.MsgVoteResp && m.From == uint64(e.Sender) && m.To == uint64(e.Recipient)
 				}))
 			case AppendEntriesReq:
-				transport.reallySend(transport.WaitForMessages(func(m raftpb.Message) bool {
+				itp.transport.reallySend(itp.transport.WaitForMessages(func(m raftpb.Message) bool {
 					return m.Type == raftpb.MsgApp && m.From == uint64(e.Sender) && m.To == uint64(e.Recipient)
 				}))
 			case AppendEntriesRes:
-				transport.reallySend(transport.WaitForMessages(func(m raftpb.Message) bool {
+				itp.transport.reallySend(itp.transport.WaitForMessages(func(m raftpb.Message) bool {
 					return m.Type == raftpb.MsgAppResp && m.From == uint64(e.Sender) && m.To == uint64(e.Recipient)
 				}))
 			default:
@@ -217,7 +233,7 @@ func interpret(transport *Transport, nodes map[int]*raftNode, events []event, de
 			}
 		case BecomeLeader:
 			leader := e.Recipient
-			WaitFor(nodes, func(nodes map[int]*raftNode) bool {
+			WaitFor(itp.nodes, func(nodes map[int]*raftNode) bool {
 				for i, n := range nodes {
 					if n.node.Raft().IsLeader() && leader == i {
 						return true
@@ -227,13 +243,13 @@ func interpret(transport *Transport, nodes map[int]*raftNode, events []event, de
 			})
 
 			// For the empty entries leaders add to their own logs
-			clearEmptyAppendEntries(transport, nodes, leader)
+			itp.clearEmptyAppendEntries(leader)
 
 			// Presumably the base case of leaders catching followers up
-			clearEmptyAppendEntries(transport, nodes, leader)
+			itp.clearEmptyAppendEntries(leader)
 		case Restart:
 
-			restartNode(e.Recipient, nodes, transport)
+			itp.restartNode(e.Recipient)
 
 			// There's no obvious way to synchronize here, even
 			// though it might take some time for the node to come
@@ -271,17 +287,21 @@ func main() {
 	}
 
 	// Wiring
-	transport := newTransport(debug)
-
 	cluster := []int{}
 	for i := 1; i <= nodes; i++ {
 		cluster = append(cluster, i)
 	}
 
-	allNodes := map[int]*raftNode{}
+	itp := interpreter{
+		transport: newTransport(debug),
+		nodes:     map[int]*raftNode{},
+		proposeC:  map[int]chan string{},
+		errorC:    map[int]<-chan error{},
+	}
+
 	for _, id := range cluster {
-		allNodes[id] = createNode(id, cluster, transport, false)
-		transport.AddNode(id, allNodes)
+		itp.createNode(id, cluster, false)
+		itp.transport.AddNode(id, itp.nodes)
 	}
 	trace, events := ParseTrace(traceF)
 
@@ -292,10 +312,10 @@ func main() {
 		logs:             convertAbsLog(trace[len(trace)-1].State.Log),
 	}
 
-	interpret(transport, allNodes, events, debug)
-	// interpret(transport, allNodes, exampleEvents())
+	itp.interpret(events, debug)
+	// interpret(exampleEvents(), debug)
 
-	implState := abstract(transport, allNodes)
+	implState := abstract(itp.transport, itp.nodes)
 
 	fmt.Printf("spec state: %s\n\nimpl state: %s\n", specState, implState)
 	if !reflect.DeepEqual(specState, implState) {
