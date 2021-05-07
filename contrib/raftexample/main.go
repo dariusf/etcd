@@ -107,17 +107,18 @@ func WaitFor(nodes map[int]*raftNode, f func(nodes map[int]*raftNode) bool) {
 	}
 }
 
-func debugPrint(nodes map[int]*raftNode) {
+func (itp *interpreter) debugPrint() {
 
-	keys := make([]int, 0, len(nodes))
-	for k := range nodes {
+	keys := make([]int, 0, len(itp.nodes))
+	for k := range itp.nodes {
 		keys = append(keys, k)
 	}
 	sort.Ints(keys)
 
-	for _, i := range keys {
-		fmt.Printf("debug state: node %d: %s\n", i, nodes[i].node.Raft().Log().Show())
-	}
+	// for _, i := range keys {
+	// 	fmt.Printf("debug state: node %d: %s\n", i, itp.nodes[i].node.Raft().Log().Show())
+	// }
+	fmt.Printf("debug state: %s\n", itp.abstract())
 }
 
 // Given a set of messages (represented as a function) sent from a leader
@@ -179,7 +180,7 @@ func (itp *interpreter) interpret(events []event, debug bool) {
 	for _, e := range events {
 		pause(e, debug)
 		if debug {
-			debugPrint(itp.nodes)
+			itp.debugPrint()
 		}
 		switch e.Type {
 		case Timeout:
@@ -198,14 +199,42 @@ func (itp *interpreter) interpret(events []event, debug bool) {
 					return m.Type == raftpb.MsgVoteResp && m.From == uint64(e.Sender) && m.To == uint64(e.Recipient)
 				})
 			case AppendEntriesReq:
-
-				bs := serializeValue(e.Message.Entry.normalValue)
-				itp.nodes[e.Sender].node.Propose(context.TODO(), bs)
+				entryValue := 0
+				bs := []byte{}
+				if len(e.Message.Entries) > 0 && e.Message.Entries[0].normalValue != 0 {
+					// A spec value of 0 is an empty entry, sent to crush opposition
+					// after an election, so e don't have to trigger these explicitly
+					entryValue = e.Message.Entries[0].normalValue
+					bs = serializeValue(entryValue)
+					itp.nodes[e.Sender].node.Propose(context.TODO(), bs)
+				}
 
 				itp.transport.ObserveSent(func(m raftpb.Message) bool {
-					return m.Type == raftpb.MsgApp && m.From == uint64(e.Sender) && m.To == uint64(e.Recipient) &&
-						(len(m.Entries) == 0 || bytes.Equal(m.Entries[0].Data, bs))
+
+					// Basic sanity check
+					isMsgApp := m.Type == raftpb.MsgApp && m.From == uint64(e.Sender) && m.To == uint64(e.Recipient)
+
+					if !isMsgApp {
+						return false
+					}
+
+					// There are 3 cases that we handle:
+					if len(m.Entries) == 0 {
+						// This may occur at any time, when the leader commits and leader
+						// commits and broadcasts nondiscriminately to everyone, even those
+						// already up to date (in which case we get this)
+						return true
+					} else if entryValue == 0 && len(m.Entries[0].Data) == 0 {
+						// This happens when a node becomes leader and adds an entry to its own log with
+						// no data in it (which is sent eventually). This shows up in the spec as an
+						// entry with value 0.
+						return true
+					} else {
+						// The final case is the normal one, where the content should match byte for byte
+						return bytes.Equal(m.Entries[0].Data, bs)
+					}
 				})
+
 			case AppendEntriesRes:
 				itp.transport.ObserveSent(func(m raftpb.Message) bool {
 					return m.Type == raftpb.MsgAppResp && m.From == uint64(e.Sender) && m.To == uint64(e.Recipient)
@@ -245,11 +274,6 @@ func (itp *interpreter) interpret(events []event, debug bool) {
 				return false
 			})
 
-			// For the empty entries leaders add to their own logs
-			itp.clearEmptyAppendEntries(leader)
-
-			// Presumably the base case of leaders catching followers up
-			itp.clearEmptyAppendEntries(leader)
 		case Restart:
 
 			itp.restartNode(e.Recipient)
@@ -338,7 +362,7 @@ func main() {
 	itp.interpret(events, debug)
 	// interpret(exampleEvents(), debug)
 
-	implState := abstract(itp.transport, itp.nodes)
+	implState := itp.abstract()
 
 	fmt.Printf("spec state: %s\n\nimpl state: %s\n", specState, implState)
 	if !reflect.DeepEqual(specState, implState) {

@@ -194,8 +194,8 @@ func (l lentry) String() string {
 type msg struct {
 	Type MessageType
 
-	// Non-null if Type == AppendEntriesReq
-	Entry lentry
+	// Null if Type != AppendEntriesReq
+	Entries []lentry
 }
 
 type event struct {
@@ -233,6 +233,7 @@ type tmsg struct {
 	Msource  string   `json:"msource"`
 	Mdest    string   `json:"mdest"`
 	Mentries []lentry `json:"mentries"`
+	Mterm    int      `json:"mterm"`
 }
 
 type Trace struct {
@@ -259,7 +260,7 @@ func convertMsg(m tmsg) msg {
 	case "RequestVoteResponse":
 		return msg{Type: RequestVoteRes}
 	case "AppendEntriesRequest":
-		return msg{Type: AppendEntriesReq, Entry: convertLEntries(m.Mentries)[0]}
+		return msg{Type: AppendEntriesReq, Entries: convertLEntries((m.Mentries))}
 	case "AppendEntriesResponse":
 		return msg{Type: AppendEntriesRes}
 	default:
@@ -332,7 +333,7 @@ func ParseTrace(fname string) ([]Trace, []event) {
 				Recipient: parseServerId(v.ExecutedOn),
 			})
 		} else if v.Action == "CommitEntry" {
-			// do nothing
+			// do nothing. this is implicit in the implementation
 		} else if v.Action == "Restart" {
 			res = append(res, event{Type: Restart,
 				Recipient: parseServerId(v.ExecutedOn),
@@ -502,9 +503,9 @@ func abstractEntries(nodes map[int]*raftNode) map[int][]lentry {
 	return r
 }
 
-func abstract(transport *Transport, nodes map[int]*raftNode) absState {
+func (itp *interpreter) abstract() absState {
 	return absState{
 		atLeastOneLeader: true,
-		logs:             abstractEntries(nodes),
+		logs:             abstractEntries(itp.nodes),
 	}
 }
